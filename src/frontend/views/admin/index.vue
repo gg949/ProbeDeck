@@ -433,7 +433,7 @@ import { t, useTranslation } from '../../utils/i18n'
 import { PING_NODE_FIELDS, validatePingNode } from '../../utils/pingNode.js'
 import { normalizeDisplayMode, resolveDisplayMode } from '../../utils/displayMode.js'
 import { applyMikusThemeOptions } from '../../utils/themeOptions.js'
-import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY } from '../../utils/constants.js'
+import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY, ONLINE_THRESHOLD_SECOND_OPTIONS } from '../../utils/constants.js'
 import { usePasswordVisibility } from '../../composables/usePasswordVisibility'
 import { useTurnstile } from './composables/useTurnstile'
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../../utils/server.js'
@@ -555,6 +555,12 @@ const normalizeHistoryRetentionDaysSetting = (value) => {
   const days = Number(value)
   if (!Number.isFinite(days) || days <= 0) return ''
   return String(Math.max(7, Math.min(365, Math.round(days))))
+}
+
+const normalizeOnlineThresholdSecondsSetting = (value) => {
+  if (value === undefined || value === null || value === '') return ''
+  const seconds = Number(value)
+  return ONLINE_THRESHOLD_SECOND_OPTIONS.includes(seconds) ? String(seconds) : ''
 }
 
 const normalizeFrontendWsTimeoutMinutesSetting = (value) => {
@@ -785,6 +791,7 @@ const settings = ref({
   frontend_ws_timeout_minutes: 0,
   long_history_points: String(HISTORY.DEFAULT_LONG_RANGE_POINTS),
   history_retention_days: '',
+  online_threshold_seconds: '',
   tg_notify: '0',
   expire_reminder: '0',
   resource_alert_rules: [],
@@ -1236,6 +1243,7 @@ const loadSettings = async () => {
         frontend_ws_timeout_minutes: normalizeFrontendWsTimeoutMinutesSetting(settingsData.frontend_ws_timeout_minutes),
         long_history_points: normalizeLongHistoryPointsSetting(settingsData.long_history_points),
         history_retention_days: normalizeHistoryRetentionDaysSetting(settingsData.history_retention_days),
+        online_threshold_seconds: normalizeOnlineThresholdSecondsSetting(settingsData.online_threshold_seconds),
         tg_notify: normalizeTgNotifySetting(settingsData.tg_notify),
         expire_reminder: normalizeExpireReminderSetting(settingsData.expire_reminder),
         resource_alert_rules: normalizeResourceAlertRulesSetting(settingsData.resource_alert_rules),
@@ -1419,6 +1427,7 @@ const saveSettings = async () => {
       frontend_ws_timeout_minutes: String(frontendWsTimeoutMinutes),
       long_history_points: normalizeLongHistoryPointsSetting(settings.value.long_history_points),
       history_retention_days: normalizeHistoryRetentionDaysSetting(settings.value.history_retention_days),
+      online_threshold_seconds: normalizeOnlineThresholdSecondsSetting(settings.value.online_threshold_seconds),
       tg_notify: normalizeTgNotifySetting(settings.value.tg_notify),
       expire_reminder: normalizeExpireReminderSetting(settings.value.expire_reminder),
       resource_alert_rules: normalizeResourceAlertRulesSetting(settings.value.resource_alert_rules),

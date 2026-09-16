@@ -6,7 +6,7 @@ import { serveFrontend } from './handlers/frontend.js';
 import { handleUpdate, handleWebSocketUpgrade, handleUpdateWebSocketUpgrade } from './handlers/update.js';
 import { handleServerAPI, handleServersAPI } from './handlers/dashboard.js';
 import { handleTheme } from './handlers/theme.js';
-import { isValidThemeOptions, loadSettings, loadSiteSettings, loadAppearanceOptions, normalizeFrontendWsTimeoutMinutes, normalizeLongHistoryPoints, resolveHistoryRetentionDays, saveThemeOptions, setDebug, debug, getSettingByKey } from './utils/settings.js';
+import { isValidThemeOptions, loadSettings, loadSiteSettings, loadAppearanceOptions, normalizeFrontendWsTimeoutMinutes, normalizeLongHistoryPoints, resolveHistoryRetentionDays, resolveOnlineThresholdSeconds, saveThemeOptions, setDebug, debug, getSettingByKey } from './utils/settings.js';
 import { omitNullLossProbeFields } from './handlers/dashboard.js';
 import { checkAuth, simpleAuthResponse } from './middleware/auth.js';
 import { getServerDetail, getMetricsHistoryCache, setMetricsHistoryCache, getCacheDuration } from './utils/cache.js';
@@ -333,6 +333,7 @@ export default {
           turnstile_verified: turnstileVerified,
           frontend_ws_timeout_minutes: Number(normalizeFrontendWsTimeoutMinutes(sys.frontend_ws_timeout_minutes)),
           long_history_points: Number(normalizeLongHistoryPoints(sys.long_history_points)),
+          online_threshold_seconds: resolveOnlineThresholdSeconds(sys.online_threshold_seconds),
           latency_window: {
             points: DASHBOARD_LATENCY_WINDOW_POINTS,
             hours: DASHBOARD_LATENCY_WINDOW_HOURS

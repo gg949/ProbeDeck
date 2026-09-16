@@ -372,7 +372,7 @@ import ServerRingCard from '../components/ServerRingCard.vue'
 import Footer from '../components/Footer.vue'
 import OsIcon from '../components/OsIcon.vue'
 import LiveConnectionTimeoutModal from '../components/LiveConnectionTimeoutModal.vue'
-import { fetchConfig, fetchServersAll, fetchServersAllWithProgress, formatBytes, createLiveSocket, getFlagRegionCode, getApiBases, isServerOnline, normalizeLiveSocketTimeoutMinutes } from '../utils/api.js'
+import { fetchConfig, fetchServersAll, fetchServersAllWithProgress, formatBytes, createLiveSocket, getFlagRegionCode, getApiBases, isServerOnline, getOnlineThresholdMs, normalizeLiveSocketTimeoutMinutes } from '../utils/api.js'
 import { calcTrafficUsagePercent, getUsageColor } from '../composables/useServerCardData'
 import { getTitle, hasMultipleApiBases, getPublicAssetUrl } from '../utils/config'
 import { currentLang, useTranslation } from '../utils/i18n.js'
@@ -897,7 +897,7 @@ const advanceServerClocks = () => {
   const currentTs = now.value
   servers.value = servers.value.map(server => {
     const reportTs = getServerReportTimestamp(server, null)
-    const isOnline = reportTs && (currentTs - reportTs) < TIME.ONLINE_THRESHOLD_MS
+    const isOnline = reportTs && (currentTs - reportTs) < getOnlineThresholdMs()
     const currentDisplayTs = getServerDisplayTimestamp(server) || getServerSampleTimestamp(server) || reportTs
     const elapsedMs = getPlaybackElapsedMs(currentTs, server.current_timestamp, PLAYBACK_TICK_MS)
     const nextDisplayTs = isOnline && currentDisplayTs ? currentDisplayTs + elapsedMs : currentDisplayTs
@@ -914,7 +914,7 @@ const recomputeStats = (currentTs = Date.now()) => {
   let unknownCount = 0
   for (const s of list) {
     const ts = new Date(s.last_updated || 0).getTime()
-    const isOnline = ts && (currentTs - ts) < TIME.ONLINE_THRESHOLD_MS
+    const isOnline = ts && (currentTs - ts) < getOnlineThresholdMs()
     if (isOnline) {
       online++
       speedIn += parseFloat(s.net_in_speed) || 0

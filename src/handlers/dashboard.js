@@ -2,7 +2,7 @@ import { checkAuth, simpleAuthResponse } from '../middleware/auth.js';
 import { getDashboardLatencyHistory, getLatestMetrics, getLatestMetricsForAllServers } from '../database/schema.js';
 import { getAllServers, getServerDetail } from '../utils/cache.js';
 import { mergeMetricsIntoServer, coerceNumericMetricFields } from '../utils/metrics.js';
-import { normalizeLongHistoryPoints } from '../utils/settings.js';
+import { normalizeLongHistoryPoints, resolveOnlineThresholdSeconds } from '../utils/settings.js';
 import { createSuccessResponse, createBadRequestResponse, createNotFoundResponse } from '../utils/errors.js';
 import {
   cacheLatestReportUpdate,
@@ -230,6 +230,7 @@ export async function handleServersAPI(request, env, sys) {
   attachLatencyHistoryToServers(results, latencyHistory);
   
   const now = Date.now();
+  const onlineThresholdMs = resolveOnlineThresholdSeconds(sys?.online_threshold_seconds) * 1000;
   let globalOnline = 0;
   let globalSpeedIn = 0, globalSpeedOut = 0, globalNetTx = 0, globalNetRx = 0;
   const regionStats = {};
@@ -240,7 +241,7 @@ export async function handleServersAPI(request, env, sys) {
     let isOnline = false;
     
     if (latestMetrics) {
-      isOnline = (now - latestMetrics.timestamp) < 300000;
+      isOnline = (now - latestMetrics.timestamp) < onlineThresholdMs;
       mergeMetricsIntoServer(server, latestMetrics);
     }
     normalizePublicIpFields(server);

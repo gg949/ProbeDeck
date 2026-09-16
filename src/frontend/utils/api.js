@@ -281,9 +281,18 @@ export const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, safeIndex)).toFixed(1)) + ' ' + sizes[safeIndex]
 }
 
+let onlineThresholdMs = TIME.ONLINE_THRESHOLD_MS
+
+export const setOnlineThresholdMs = (ms) => {
+  const value = Number(ms)
+  if (Number.isFinite(value) && value > 0) onlineThresholdMs = value
+}
+
+export const getOnlineThresholdMs = () => onlineThresholdMs
+
 export const isServerOnline = (server, now = Date.now()) => {
   const lastUpdated = normalizeTimestamp(server?.report_timestamp ?? server?.last_updated)
-  return lastUpdated && (now - lastUpdated) < TIME.ONLINE_THRESHOLD_MS
+  return lastUpdated && (now - lastUpdated) < onlineThresholdMs
 }
 
 export const fetchServers = async () => {

@@ -6,7 +6,7 @@ import './styles/light.css'
 import { applyDefaultLanguage, currentLang, resolveLanguagePreference, translations } from './utils/i18n'
 import { http } from './utils/http'
 import { initConfig, hasMultipleApiBases } from './utils/config'
-import { LAST_AGENT_VERSION, LAST_WORKERS_VERSION, VERSION, normalizeLiveSocketTimeoutMinutes } from './utils/api'
+import { LAST_AGENT_VERSION, LAST_WORKERS_VERSION, VERSION, normalizeLiveSocketTimeoutMinutes, setOnlineThresholdMs } from './utils/api'
 import { resolveDisplayMode } from './utils/displayMode'
 import { getMikusAssetUrl, isMikusThemeEnabled, normalizeThemeOptions, setMikusThemeClass } from './utils/themeOptions'
 import { applyDefaultTheme } from './composables/useTheme'
@@ -122,6 +122,7 @@ async function fetchConfig() {
     const defaultLanguage = ['zh', 'en', 'auto'].includes(String(data.default_language || '').toLowerCase()) ? String(data.default_language).toLowerCase() : 'auto'
     const themeOptions = normalizeThemeOptions(data.theme_options)
     const frontendWsTimeoutMinutes = normalizeLiveSocketTimeoutMinutes(data.frontend_ws_timeout_minutes)
+    setOnlineThresholdMs(Number(data.online_threshold_seconds) * 1000)
 
     if (version) {
       VERSION.value = version

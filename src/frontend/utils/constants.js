@@ -23,6 +23,7 @@ export const HISTORY = {
 }
 
 export const HISTORY_RETENTION_DAY_OPTIONS = [7, 14, 30, 60, 90, 180, 365]
+export const ONLINE_THRESHOLD_SECOND_OPTIONS = [60, 120, 180, 300, 600, 900, 1800, 3600]
 
 export const LATENCY_WINDOW = {
   POINTS: 20,
