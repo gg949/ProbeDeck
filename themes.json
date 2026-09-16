@@ -4,91 +4,120 @@
     {
       "id": "emerald",
       "title": "Emerald",
-      "cover": "https://raw.githubusercontent.com/Tokinx/cf-server-monitor-theme-emerald/main/docs/preview.png",
-      "tags": ["Emerald","Earth"],
+      "cover": "https://raw.githubusercontent.com/gg949/cf-server-monitor-theme-emerald/main/docs/preview.png",
+      "tags": [
+        "Emerald",
+        "Earth"
+      ],
       "description": {
         "zh-CN": "翡翠配色的 CF Server Monitor 主题。",
         "en": "An emerald theme for CF Server Monitor."
       },
-      "url": "https://github.com/Tokinx/cf-server-monitor-theme-emerald",
+      "url": "https://github.com/gg949/cf-server-monitor-theme-emerald",
       "branch": "build",
       "author": "Tokinx"
     },
     {
       "id": "pulse",
       "title": "Pulse",
-      "cover": "https://raw.githubusercontent.com/loongkong/cf-server-monitor-theme-pulse/main/docs/preview.svg",
-      "tags": ["Pulse", "Minimal", "Mono"],
+      "cover": "https://raw.githubusercontent.com/gg949/cf-server-monitor-theme-pulse/main/docs/preview.svg",
+      "tags": [
+        "Pulse",
+        "Minimal",
+        "Mono"
+      ],
       "description": {
         "zh-CN": "极简风格的 CF Server Monitor 主题。秒级全局节拍驱动实时数据，卡片/圆环/表格三种模式，支持价格、到期、流量包与剩余价值展示。",
         "en": "A minimal CF Server Monitor theme. Realtime data on a unified 1s tick, bar/ring/table card modes, with price, expiry, traffic quota and remaining-value display."
       },
-      "url": "https://github.com/loongkong/cf-server-monitor-theme-pulse",
+      "url": "https://github.com/gg949/cf-server-monitor-theme-pulse",
       "branch": "main",
       "author": "loongkong"
     },
     {
       "id": "luminaplus",
       "title": "LuminaPlus",
-      "cover": "https://raw.githubusercontent.com/volcano-1025/CFSM-Theme-LuminaPlus/main/docs/preview.png",
-      "tags": ["LuminaPlus", "Cards", "Realtime"],
+      "cover": "https://raw.githubusercontent.com/gg949/CFSM-Theme-LuminaPlus/main/docs/preview.png",
+      "tags": [
+        "LuminaPlus",
+        "Cards",
+        "Realtime"
+      ],
       "description": {
         "zh-CN": "清爽的卡片式主题。大 / 小 / 迷你 / 列表四种视图，实时更新，含三网延迟丢包、价格到期与流量统计。",
         "en": "A clean card-based theme. Four layouts (large / compact / mini / list), realtime updates, per-carrier latency and loss bars, plus price, expiry and traffic stats."
       },
-      "url": "https://github.com/volcano-1025/CFSM-Theme-LuminaPlus",
+      "url": "https://github.com/gg949/CFSM-Theme-LuminaPlus",
       "branch": "dist",
       "author": "volcano-1025"
     },
     {
       "id": "horizon",
       "title": "Horizon",
-      "cover": "https://raw.githubusercontent.com/akasls/Horizon-CF-Server-Monitor/main/docs/preview.png",
-      "tags": ["Horizon", "Flat", "Clean"],
+      "cover": "https://raw.githubusercontent.com/gg949/Horizon-CF-Server-Monitor/main/docs/preview.png",
+      "tags": [
+        "Horizon",
+        "Flat",
+        "Clean"
+      ],
       "description": {
         "zh-CN": "为 CF-Server-Monitor 设计的扁平、简洁、现代且精确的仪表盘主题。",
         "en": "A flat, clean, modern, and precision dashboard theme for CF-Server-Monitor"
       },
-      "url": "https://github.com/akasls/Horizon-CF-Server-Monitor",
+      "url": "https://github.com/gg949/Horizon-CF-Server-Monitor",
       "branch": "build",
       "author": "akasls"
     },
     {
       "id": "junimo",
       "title": "Junimo",
-      "cover": "https://raw.githubusercontent.com/huilang-me/cfsm-junimo/main/preview.png",
-      "tags": ["Junimo", "Game", "Stardew Valley"],
+      "cover": "https://raw.githubusercontent.com/gg949/cfsm-junimo/main/preview.png",
+      "tags": [
+        "Junimo",
+        "Game",
+        "Stardew Valley"
+      ],
       "description": {
         "zh-CN": "一款灵感来源于游戏《星露谷物语》的主题。",
         "en": "A theme inspired by the game Stardew Valley."
       },
-      "url": "https://github.com/huilang-me/cfsm-junimo",
+      "url": "https://github.com/gg949/cfsm-junimo",
       "branch": "build",
       "author": "huilang-me"
     },
     {
       "id": "shadcn",
       "title": "Shadcn",
-      "cover": "https://raw.githubusercontent.com/LanHuangJG/cf-server-monitor-theme-shadcn/master/docs/preview.png",
-      "tags": ["shadcn", "React", "Cards", "Realtime"],
+      "cover": "https://raw.githubusercontent.com/gg949/cf-server-monitor-theme-shadcn/master/docs/preview.png",
+      "tags": [
+        "shadcn",
+        "React",
+        "Cards",
+        "Realtime"
+      ],
       "description": {
         "zh-CN": "React 19 + shadcn/ui 主题。卡片/表格/环形三视图，实时 WebSocket，三网延迟与丢包、历史曲线、计费与剩余价值（人民币折算），响应式骨架屏与明暗切换。",
         "en": "A React 19 + shadcn/ui theme with card/table/ring views, realtime WebSocket, per-carrier latency & loss, history charts, billing and remaining value (CNY), responsive skeletons and dark mode."
       },
-      "url": "https://github.com/LanHuangJG/cf-server-monitor-theme-shadcn",
+      "url": "https://github.com/gg949/cf-server-monitor-theme-shadcn",
       "branch": "build",
       "author": "LanHuangJG"
     },
     {
       "id": "glassmorphism",
       "title": "Glassmorphism",
-      "cover": "https://raw.githubusercontent.com/allury/CFSM-Glassmorphism/main/docs/preview.webp",
-      "tags": ["Glassmorphism", "Earth", "Charts", "Realtime"],
+      "cover": "https://raw.githubusercontent.com/gg949/CFSM-Glassmorphism/main/docs/preview.webp",
+      "tags": [
+        "Glassmorphism",
+        "Earth",
+        "Charts",
+        "Realtime"
+      ],
       "description": {
         "zh-CN": "毛玻璃风格主题。三种地球 / 地图渲染可选可关，卡片与列表两种视图、四档卡片密度，节点详情含信息卡与历史图表，并内置 48 项主题设置页。",
         "en": "A glassmorphism theme with three optional globe/map renderers, card and list views in four densities, per-node detail with info cards and history charts, and a built-in settings page of 48 options."
       },
-      "url": "https://github.com/allury/CFSM-Glassmorphism",
+      "url": "https://github.com/gg949/CFSM-Glassmorphism",
       "branch": "theme-dist",
       "author": "allury"
     }
