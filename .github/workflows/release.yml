@@ -1,8 +1,13 @@
 # 自动创建 GitHub Release（版本发布）
 #
 # 两种触发方式：
-#   ① 手动（推荐）：仓库 Actions 页面 → 左侧选 "Create Release" → Run workflow → 填版本号（如 v2.8.5）
-#   ② 打标签：git tag v2.8.5 && git push origin v2.8.5
+#   ① 手动（推荐）：仓库 Actions 页面 → 左侧选 "Create Release" → Run workflow → 填版本号（如 v2.8.6）
+#   ② 打标签：git tag v2.8.6 && git push origin v2.8.6
+#
+# 发布后会自动：
+#   • 创建 Release（自动生成更新说明 + 附加部署说明）
+#   • 附带 install.sh（一键安装脚本）与 docker-compose.yml 附件
+#   • 镜像同步发布到 GHCR（ghcr.io/<所有者>/probedeck:<版本号>）
 name: Create Release
 
 on:
@@ -11,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（例如 v2.8.5）'
+        description: '版本号（例如 v2.8.6）'
         required: true
 
 permissions:
@@ -42,4 +47,33 @@ jobs:
           tag_name: ${{ env.VERSION }}
           name: ${{ env.VERSION }}
           generate_release_notes: true
+          append_body: |
+            ## 📦 安装方式
+
+            ### 方式一：一键脚本（推荐）
+
+            ```bash
+            curl -fsSL https://github.com/gg949/ProbeDeck/releases/latest/download/install.sh | bash
+            ```
+
+            ### 方式二：Docker 命令
+
+            ```bash
+            docker run -d --name probedeck --restart unless-stopped -p 17986:17986 \
+              -v /opt/probedeck/data:/app/data \
+              ghcr.io/gg949/probedeck:${{ env.VERSION }}
+            ```
+
+            ### 方式三：docker compose
+
+            下载下方附件中的 `docker-compose.yml`，把镜像改为本版本 `ghcr.io/gg949/probedeck:${{ env.VERSION }}` 后执行 `docker compose up -d`。
+
+            ---
+
+            - 镜像地址：`ghcr.io/gg949/probedeck:${{ env.VERSION }}`（`latest` 同源）
+            - 首次启动的初始密码：`docker logs probedeck 2>&1 | grep API_SECRET`
+            - 完整文档：[README](https://github.com/gg949/ProbeDeck/blob/main/README.md)
+          files: |
+            install.sh
+            docker-compose.yml
           make_latest: true
