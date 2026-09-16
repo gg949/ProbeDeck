@@ -248,6 +248,37 @@ GitHub Actions 会自动重新构建并发布新镜像；本地从源码构建�
 docker compose -f docker-compose.build.yml up -d --build
 ```
 
+## 卸载
+
+### 卸载被控端（探针）
+
+在被控机（root）上执行，把地址换成你的面板地址：
+
+```bash
+curl -fsSL 'http://你的面板地址/uninstall.sh' | sudo sh -s
+```
+
+- 脚本会先询问确认；跳过询问直接卸载：把结尾换成 `| sudo sh -s -- -y`
+- 执行后会停止服务并删除探针脚本、配置、流量统计和日志
+- 支持 systemd / OpenRC / OpenWrt / 群晖 DSM / macOS；Windows 被控机使用 `uninstall.ps1`
+- 也可以在管理面板里「删除服务器」——弹窗中会给出对应的卸载命令，复制执行一样有效
+
+### 卸载主控端（部署 ProbeDeck 的服务器）
+
+```bash
+# ① 停止并删除容器
+docker compose down      # compose 部署：在部署目录里执行
+# 或
+docker rm -f probedeck   # docker run 部署
+
+# ②（可选）删除镜像
+docker rmi ghcr.io/gg949/probedeck:latest
+
+# ③（可选）删除数据/目录 —— ⚠️ 数据库与历史数据会一并删除，需保留请先备份 data/
+#    compose 部署：删除整个部署目录（含 data/）
+#    docker run 部署：删除你当时执行命令所在目录（里面的 data/）
+```
+
 ## 常见问题
 
 **Q：页面提示 "Frontend not available / 未构建前端"？**
