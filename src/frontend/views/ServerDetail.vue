@@ -519,7 +519,8 @@ const timeOptions = computed(() => {
   ]
 })
 
-const isOnline = computed(() => isServerOnline(server.value))
+const clockTick = ref(Date.now())
+const isOnline = computed(() => isServerOnline(server.value, clockTick.value))
 
 const cpuPercent = computed(() => (parseFloat(server.value.cpu) || 0).toFixed(1))
 
@@ -1806,13 +1807,23 @@ watch([cpuChartRef, gpuChartRef, ramChartRef, diskChartRef, diskIoChartRef, netC
   }
 })
 
+let clockTickTimer = null
+
 onMounted(() => {
   init()
+  // 在线状态依赖响应式时钟：每秒推进，保证 Agent 失联、无新数据推送时，
+  // isOnline 仍会随超时阈值自动过期重算（详情页不会一直停留"在线"）。
+  if (!clockTickTimer) {
+    clockTickTimer = setInterval(() => {
+      clockTick.value = Date.now()
+    }, 1000)
+  }
 })
 
 onUnmounted(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
   if (liveSocket) liveSocket.close()
+  if (clockTickTimer) { clearInterval(clockTickTimer); clockTickTimer = null }
   clearLatestReportReplayTimers()
   lastGpuSignature = ''
   safeDestroyCharts()

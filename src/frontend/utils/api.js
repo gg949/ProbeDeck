@@ -28,8 +28,10 @@ export const createLiveSocket = (subscribe, handlers = {}, apiIndex = 0, serverI
   let ws = null
   let manualClose = false
   let reconnectTimer = null
+  let reconnectDelayTimer = null
   let reconnectDelay = TIME.RECONNECT_INITIAL_DELAY_MS
   let reconnectAttempts = 0
+  let onlineListenerAttached = false
   let connectionLifetimeTimer = null
   const MAX_REPLAY_DELAY = 120000
   let isConnected = false
@@ -145,7 +147,8 @@ export const createLiveSocket = (subscribe, handlers = {}, apiIndex = 0, serverI
   }
 
   const connect = () => {
-    manualClose = false
+    // 已被 close() 显式停止时，禁止任何延迟排程把连接“复活”。
+    if (manualClose) return
     let socket = null
     try {
       const url = new URL(`${getWsBaseByIndex(apiIndex)}/api/ws`)
@@ -223,38 +226,67 @@ export const createLiveSocket = (subscribe, handlers = {}, apiIndex = 0, serverI
   const scheduleReconnect = () => {
     if (manualClose) return
     if (reconnectTimer) return
-    if (reconnectAttempts >= TIME.MAX_RECONNECT_ATTEMPTS) {
-      setStatus(false, 'max reconnect attempts reached')
-      return
-    }
+    if (reconnectDelayTimer) return
 
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       reconnectAttempts++
       const delay = reconnectDelay
       reconnectDelay = Math.min(reconnectDelay * 2, TIME.RECONNECT_MAX_DELAY_MS)
-      setTimeout(connect, delay)
+      // 延迟句柄另存，close()/reconnect() 可一并取消（防止已停止的连接被“复活”）。
+      reconnectDelayTimer = setTimeout(() => {
+        reconnectDelayTimer = null
+        connect()
+      }, delay)
     }, 50)
   }
 
+  // 网络恢复（online 事件）时立即重置退避并重试，不等长退避到期。
+  const handleOnline = () => {
+    if (manualClose || ws) return
+    reconnectAttempts = 0
+    reconnectDelay = TIME.RECONNECT_INITIAL_DELAY_MS
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+    if (reconnectDelayTimer) { clearTimeout(reconnectDelayTimer); reconnectDelayTimer = null }
+    connect()
+  }
+
+  const attachOnlineListener = () => {
+    if (onlineListenerAttached) return
+    onlineListenerAttached = true
+    window.addEventListener('online', handleOnline)
+  }
+
+  const detachOnlineListener = () => {
+    if (!onlineListenerAttached) return
+    onlineListenerAttached = false
+    window.removeEventListener('online', handleOnline)
+  }
+
+  attachOnlineListener()
   connect()
 
   return {
     close() {
       manualClose = true
-      reconnectAttempts = TIME.MAX_RECONNECT_ATTEMPTS
+      reconnectAttempts = 0
+      detachOnlineListener()
       clearReplayTimers()
       clearConnectionLifetimeTimer()
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+      if (reconnectDelayTimer) { clearTimeout(reconnectDelayTimer); reconnectDelayTimer = null }
       if (ws) { try { ws.close() } catch (_) {} ws = null }
       setStatus(false, 'disconnected')
     },
     reconnect() {
       manualClose = false
       reconnectAttempts = 0
+      reconnectDelay = TIME.RECONNECT_INITIAL_DELAY_MS
+      attachOnlineListener()
       clearReplayTimers()
       clearConnectionLifetimeTimer()
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+      if (reconnectDelayTimer) { clearTimeout(reconnectDelayTimer); reconnectDelayTimer = null }
       if (ws) { try { ws.close() } catch (_) {} ws = null }
       setStatus(false, 'reconnecting')
       connect()

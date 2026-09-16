@@ -269,6 +269,9 @@ async function writeRawHttpResponse(socket, response) {
       : [];
   for (const cookie of setCookies) lines.push(`set-cookie: ${cookie}`);
   if (body) lines.push(`content-length: ${body.length}`);
+  if (!response.headers.has('date')) {
+    lines.push(`date: ${new Date().toUTCString()}`);
+  }
   lines.push('connection: close');
 
   socket.write(
@@ -362,6 +365,33 @@ const server = http.createServer(async (req, res) => {
 // ── 10) WebSocket 升级处理 ─────────────────────────────────────────────────
 const wss = new WebSocketServer({ noServer: true });
 
+// 迁移到自托管 Node 后需自行补齐的原平台兜底能力：
+// 1) 主动心跳：空闲连接（探针上报间隔 60-180s、无前端订阅时无数据流）会被
+//    nginx/Caddy 等反向代理的默认 60s 空闲超时掐断；协议层 ping 可保活。
+// 2) 死连接清理：静默断网（无 FIN/RST）时 close 事件永不触发；用 isAlive +
+//    pong 检测死亡连接并 terminate（terminate 触发 close → 既有清理逻辑生效）。
+// 3) 101 握手响应补标准 Date 头：WSS 模式下探针的时间校准样本只来自握手响应
+//    的 Date 头（Node/ws 库不会自动补；Cloudflare 原版由平台边缘补）。
+const WS_HEARTBEAT_INTERVAL_MS = 25000;
+
+wss.on('headers', (headers) => {
+  headers.push(`Date: ${new Date().toUTCString()}`);
+});
+
+const wsHeartbeatTimer = setInterval(() => {
+  for (const rawSocket of wss.clients) {
+    if (rawSocket.isAlive === false) {
+      rawSocket.terminate();
+      continue;
+    }
+    rawSocket.isAlive = false;
+    try {
+      rawSocket.ping();
+    } catch (_) {}
+  }
+}, WS_HEARTBEAT_INTERVAL_MS);
+wsHeartbeatTimer.unref?.();
+
 server.on('upgrade', async (req, socket, head) => {
   try {
     const request = await toFetchRequest(req, { withBody: false });
@@ -375,7 +405,24 @@ server.on('upgrade', async (req, socket, head) => {
     if (response.status === 101 && store.pairs.length > 0) {
       const serverSocket = store.pairs[0];
       wss.handleUpgrade(req, socket, head, (rawWs) => {
+        rawWs.isAlive = true;
+        rawWs.on('pong', () => {
+          rawWs.isAlive = true;
+        });
         serverSocket.bindReal(rawWs);
+      });
+      // 兜底：握手未完成时 socket 被 ws 库直接销毁（升级回调不会触发），此时
+      // shim 未绑定任何 raw 连接、永远不会收到 close 事件——延迟检查并清理，
+      // 避免其永久残留于连接池（及其待发送队列）。
+      socket.once('close', () => {
+        setTimeout(() => {
+          try {
+            if (!serverSocket._raw) {
+              serverSocket._state?._sockets?.delete(serverSocket);
+              serverSocket._doInstance?.webSocketClose?.(serverSocket, 1006, 'upgrade aborted');
+            }
+          } catch (_) {}
+        }, 1000);
       });
       return;
     }
