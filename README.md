@@ -24,15 +24,12 @@
 
 ## 快速开始
 
-### 方式一：docker compose（推荐）
+### 方式一：一键部署（推荐）
+
+在服务器上**复制执行这一行**即可（自动下载、构建并启动，要求已安装 Docker）：
 
 ```bash
-# 1. 下载项目并进入目录（git clone 或解压本压缩包）
-# 2. 构建并启动（无需任何配置）
-docker compose up -d --build
-
-# 3. 查看日志（首次启动会打印自动生成的 API_SECRET）
-docker compose logs -f
+git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck && docker compose up -d --build
 ```
 
 启动后访问：
@@ -40,9 +37,13 @@ docker compose logs -f
 - 监控面板：`http://你的服务器IP:17986/`
 - 管理面板：`http://你的服务器IP:17986/admin`
   - 用户名：`admin`
-  - 初始密码：**首次启动时自动生成，打印在日志里**（也保存在 `data/api_secret.txt`），登录后可在设置里修改
+  - 初始密码：**首次启动时自动生成**，执行这行查看：
+    ```bash
+    docker compose logs | grep API_SECRET
+    ```
+  - （密码同时保存在 `data/api_secret.txt`，登录后可在设置里修改）
 
-> 如果想自定义密钥（比如从旧部署迁移探针），在 `docker-compose.yml` 里设置 `API_SECRET` 即可，优先级高于自动生成。
+> 想自定义密钥（比如从旧部署迁移探针）？在 `docker-compose.yml` 里设置 `API_SECRET` 即可，优先级高于自动生成。
 
 ### 方式二：docker run
 
@@ -70,40 +71,26 @@ docker run -d \
 
 ### 方案一：Cloudflare 隧道（无需公网 IP、无需开端口、自带 HTTPS）
 
-**先安装 cloudflared（一行）：**
+**① 先在 Cloudflare Zero Trust 控制台创建隧道**（Networks → Tunnels → Create a tunnel）：
+创建过程中把 **Public Hostname** 填成 `你的域名` → `http://localhost:17986`，最后复制页面生成的 **token**（`ey` 开头的一长串）。
+
+**② 在服务器复制执行这一行**（把 `<token>` 换成你复制的那串）：
+
+```bash
+cloudflared service install <token>
+```
+
+完成——访问你的域名即可，HTTPS 证书与 WebSocket 全自动。
+
+<details>
+<summary>cloudflared 尚未安装？点此处展开（安装后再执行上面那行）</summary>
 
 ```bash
 curl -L -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x /usr/local/bin/cloudflared
 ```
 
-> ARM 服务器把 `amd64` 换成 `arm64`。Debian/Ubuntu 也可用官方 apt 源安装（见 Cloudflare 官方文档）。
-
-**固定域名（需要 Cloudflare 账号）**
-
-前提：你有一个托管在 Cloudflare 的域名（免费套餐即可）。
-
-推荐用控制台生成 token（服务器上无需登录）：
-
-1. Cloudflare Zero Trust 控制台 → Networks → Tunnels → Create a tunnel（选 cloudflared）
-2. 复制生成的 **token（`ey` 开头的一长串）**，到服务器执行：
-
-   ```bash
-   cloudflared service install <ey开头的token>
-   ```
-
-   （不想装系统服务也可以前台运行：`cloudflared tunnel run --token <ey开头token>`）
-
-3. 回到控制台给这条隧道添加 Public Hostname：`monitor.example.com` → `http://localhost:17986`
-4. 完成——访问 `https://monitor.example.com`，证书与 WebSocket 全自动
-
-也可以纯命令行方式（需要浏览器登录一次 Cloudflare 账号）：
-
-```bash
-cloudflared tunnel login
-cloudflared tunnel create monitor
-cloudflared tunnel route dns monitor monitor.example.com
-cloudflared tunnel run monitor
-```
+ARM 服务器把 `amd64` 换成 `arm64`。Debian/Ubuntu 也可用官方 apt 源安装。
+</details>
 
 ### 方案二：Caddy（自动申请证书，一行搞定）
 
@@ -121,12 +108,15 @@ monitor.example.com {
 
 Caddy 会自动申请并续期 HTTPS 证书，WebSocket 自动透传，无需额外配置。
 
+> ⚠️ 示例里的 `monitor.example.com` 要**换成你自己的域名**再执行。
+
 ### 方案三：Nginx（一行式 server 配置）
 
 ```nginx
 server { listen 80; server_name monitor.example.com; location / { proxy_pass http://127.0.0.1:17986; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; } }
 ```
 
+> ⚠️ 示例里的 `monitor.example.com` 要**换成你自己的域名**。
 > 写入 `/etc/nginx/conf.d/monitor.conf` 后 `nginx -s reload`。
 > 需要 HTTPS 可配合 `certbot --nginx` 一键签发证书。
 > 注意保留 `Upgrade` / `Connection` / `X-Forwarded-*` 这几行——WebSocket 和客户端 IP 识别都依赖它们。
