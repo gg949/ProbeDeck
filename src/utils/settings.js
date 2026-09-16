@@ -267,7 +267,11 @@ export function normalizeNotificationTemplate(value) {
   if (LEGACY_DEFAULT_NOTIFICATION_TEMPLATES.includes(template)) {
     return DEFAULT_NOTIFICATION_TEMPLATE;
   }
-  return (template || DEFAULT_NOTIFICATION_TEMPLATE).slice(0, 4000);
+  return (template || DEFAULT_NOTIFICATION_TEMPLATE)
+    .replace(/github\.com\/huilang-me\/CF-Server-Monitor/gi, 'github.com/gg949/ProbeDeck')
+    .replace(/CF-Server-Monitor/gi, 'ProbeDeck')
+    .replace(/CF Server Monitor/gi, 'ProbeDeck')
+    .slice(0, 4000);
 }
 
 export function normalizeResourceAlertWindowMinutes(value) {
