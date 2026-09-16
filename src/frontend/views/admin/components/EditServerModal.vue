@@ -113,6 +113,9 @@
         <div class="form-group flex-1">
           <label class="form-label">{{ trans.reportInterval }}</label>
           <select v-model="editForm.report_interval" class="form-select">
+            <option :value="1">1</option>
+            <option :value="3">3</option>
+            <option :value="5">5</option>
             <option :value="10">10</option>
             <option :value="15">15</option>
             <option :value="20">20</option>
