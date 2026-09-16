@@ -530,7 +530,10 @@ export async function serveFrontend(request, env, settings = null) {
     if (themeHtml) {
       return buildHtmlResponse(themeHtml, settings, request, env, previewThemeUrl);
     }
-    return buildThemeIndexErrorResponse();
+    // 预览场景保留错误页；线上主题加载失败时自动回落到内置前端（保底：主题失效不影响站点访问）
+    if (previewThemeUrl) {
+      return buildThemeIndexErrorResponse();
+    }
   }
 
   const files = await loadFrontendFiles(env);

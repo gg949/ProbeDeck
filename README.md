@@ -430,6 +430,13 @@ rm -rf /opt/probedeck
 查看启动日志中"地区识别"一行：若显示"已降级"说明数据库未就绪——联网后重启容器会自动下载，
 或手动放置 `.mmdb` 到 `/opt/probedeck/data/geoip/`。
 
+## 相关文档
+
+- [主题开发文档](theme-develop.md)：第三方主题开发规范——数据接口、WebSocket 协议、构建产物约定、页脚要求与提交流程
+- [全局 API 文档](API.md)：完整 REST / WebSocket API 参考——鉴权、端点、数据结构、错误码
+
+> **主题生态**：ProbeDeck 与原版 CF-Server-Monitor 的主题**完全通用**。面板中可直接填写任意主题链接（不限数量），格式为 `https://github.com/<作者>/<仓库>/tree/<分支>`；也可以在「主题商店」里一键安装。即使主题链接失效，站点也会自动回落到内置界面，不受影响。
+
 ## 致谢与许可
 
 - 原始项目：[huilang-me/CF-Server-Monitor](https://github.com/huilang-me/CF-Server-Monitor)（MIT）
