@@ -56,8 +56,9 @@ services:
       # 地区自动识别：maxmind（默认，本地 GeoLite2 数据库）/ ipinfo（在线）/ off（关闭）
       GEOIP_PROVIDER: "maxmind"
     volumes:
-      # SQLite 数据库、运行数据与自动下载的 GeoIP 库（备份/迁移只需保留该目录）
-      - ./data:/app/data
+      # 数据目录：项目专属 /opt/probedeck/data（自动创建）
+      # 数据集中一处，更新/备份/卸载都省事；想换位置把左边路径改掉即可
+      - /opt/probedeck/data:/app/data
 ```
 
 **2. 启动：**
@@ -75,20 +76,21 @@ docker compose pull && docker compose up -d
 ### 方式二：一行命令（docker run）
 
 ```bash
-docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v ./data:/app/data ghcr.io/gg949/probedeck:latest
+docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v /opt/probedeck/data:/app/data ghcr.io/gg949/probedeck:latest
 ```
 
 > `17986:17986` 左边是宿主机端口，换端口改左边的数字即可；
-> `./data:/app/data` 是数据目录，在你希望存放数据的位置执行即可（会自动创建 `data` 文件夹）。
+> `/opt/probedeck/data` 是**项目专属数据目录**（自动创建）——数据集中一处：
+> 更新时换任何目录执行都不会挂错、备份只打包这一个目录、卸载删它即清净。
+> 想放别的位置就把左边路径换掉（比如 `-v ./data:/app/data` 存到当前目录）。
 
-**以后升级版本**（在当初部署的目录下执行）：
+**以后升级版本**（任何目录执行都行）：
 
 ```bash
-docker pull ghcr.io/gg949/probedeck:latest && docker stop probedeck && docker rm probedeck && docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v ./data:/app/data ghcr.io/gg949/probedeck:latest
+docker pull ghcr.io/gg949/probedeck:latest && docker stop probedeck && docker rm probedeck && docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v /opt/probedeck/data:/app/data ghcr.io/gg949/probedeck:latest
 ```
 
-> 数据都在宿主机 `data` 文件夹里，删容器不影响；但 **`./data` 是相对路径，必须回到当初部署的目录执行**，换目录会挂到新的空 data。
-> 忘了当初在哪个目录？执行 `docker inspect probedeck --format '{{range .Mounts}}{{.Source}}{{end}}'` 查看数据目录的实际位置，父目录就是部署位置。
+> 数据都在 `/opt/probedeck/data` 里，删容器不影响；挂载用的是完整路径，**任何目录执行都不会挂错**。
 
 ### 启动后访问
 
@@ -223,7 +225,7 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 
 **自定义 IP 数据库**：把任意 GeoLite2 格式的 `.mmdb` 文件挂载进容器，然后两种方式任选——
 
-- 放到 `./data/geoip/GeoLite2-Country.mmdb`（推荐，自动识别）
+- 放到 `/opt/probedeck/data/geoip/GeoLite2-Country.mmdb`（推荐，自动识别）
 - 或设置 `GEOIP_MMDB_PATH=/app/data/geoip/你的文件.mmdb`
 
 数据库文件查找顺序：`GEOIP_MMDB_PATH` → `data/geoip/GeoLite2-Country.mmdb` → 镜像内置；
@@ -261,12 +263,12 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 
 | 文件 | 说明 |
 | --- | --- |
-| `data/monitor.db` | 主数据库（SQLite：服务器、历史、设置） |
-| `data/api_secret.txt` | 自动生成的密钥 |
-| `data/geoip/` | 自动下载的 GeoIP 数据库（如使用） |
-| `data/do-storage.json` | 实时广播模块的少量运行状态 |
+| `/opt/probedeck/data/monitor.db` | 主数据库（SQLite：服务器、历史、设置） |
+| `/opt/probedeck/data/api_secret.txt` | 自动生成的密钥 |
+| `/opt/probedeck/data/geoip/` | 自动下载的 GeoIP 数据库（如使用） |
+| `/opt/probedeck/data/do-storage.json` | 实时广播模块的少量运行状态 |
 
-备份：停止容器后复制整个 `data/` 目录；恢复：放回后启动。
+备份：停止容器后复制整个 `/opt/probedeck/data/` 目录；恢复：放回后启动。
 历史数据保留时长**可自定义**：默认约两周（`HISTORY_RETENTION_DAYS=14`），改成 `30` 即保留约一个月；
 内部按"轮换周期 = 保留天数的一半"自动清理旧数据，数据库体积保持很小。
 
@@ -331,14 +333,13 @@ npx wrangler d1 export server-monitor-db --remote --output=backup.sql
 # 安装 sqlite3 命令行工具（没装过的话）
 sudo apt install -y sqlite3
 
-# ① 停止面板容器（导入期间必须停止，避免文件锁）——先 cd 到部署目录，再按你的部署方式选一条：
-cd 你的部署目录
-docker compose down      # compose 部署
+# ① 停止面板容器（导入期间必须停止，避免文件锁）——按部署方式选一条：
+docker compose down      # compose 部署（在 compose 文件所在目录执行）
 docker stop probedeck    # docker run（一行命令）部署
 
 # ② 用导出文件建一个新库（当前库如果已有数据，先改名备份、别删）
-mv data/monitor.db data/monitor.db.bak 2>/dev/null
-sqlite3 data/monitor.db < backup.sql
+mv /opt/probedeck/data/monitor.db /opt/probedeck/data/monitor.db.bak 2>/dev/null
+sqlite3 /opt/probedeck/data/monitor.db < backup.sql
 
 # ③ 重新启动——按你的部署方式选一条：
 docker compose up -d     # compose 部署
@@ -398,25 +399,14 @@ docker stop probedeck && docker rm probedeck
 docker rmi ghcr.io/gg949/probedeck:latest
 ```
 
-**③（可选）删除数据**——⚠️ 面板设置、服务器记录、全部历史数据都在这个文件夹里，删了就没了；想保留就先把它整个拷贝走备份。
-
-先找到 data 文件夹在哪：
+**③（可选）删除数据**——⚠️ 面板设置、服务器记录、全部历史数据都在 `/opt/probedeck/data` 里，删了就没了；想保留就先复制一份备份。
 
 ```bash
-# 推荐在删容器之前执行（输出就是 data 的完整路径，例如 /root/data）：
-docker inspect probedeck --format '{{range .Mounts}}{{.Source}}{{end}}'
-
-# 如果容器已经删了，用这条全盘搜也行：
-find / -name "api_secret.txt" 2>/dev/null
+# 数据都在项目专属目录里，整个删掉即可（干净利落）
+rm -rf /opt/probedeck
 ```
 
-找到后删除（把路径换成上面查到的，例如 `/root/data`）：
-
-```bash
-rm -rf /root/data
-```
-
-> 💡 数据只存在宿主机这一个 `data` 文件夹里（容器内部没有独立存储）。想卸载得干干净净 = ① 删容器 + ② 删镜像 + ③ 删 data 文件夹，三个都做即彻底清空。
+> 💡 数据只存在 `/opt/probedeck/data` 里（容器内部没有独立存储）。想卸载得干干净净 = ① 删容器 + ② 删镜像 + ③ `rm -rf /opt/probedeck`，三个都做即彻底清空。
 
 ## 常见问题
 
@@ -438,7 +428,7 @@ rm -rf /root/data
 
 **Q：地区都显示空白？**
 查看启动日志中"地区识别"一行：若显示"已降级"说明数据库未就绪——联网后重启容器会自动下载，
-或手动放置 `.mmdb` 到 `./data/geoip/`。
+或手动放置 `.mmdb` 到 `/opt/probedeck/data/geoip/`。
 
 ## 致谢与许可
 
