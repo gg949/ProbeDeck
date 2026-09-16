@@ -251,7 +251,7 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 | `API_SECRET` | 探针上报密钥 + 管理面板初始密码。不设置则首次启动自动生成 | 自动生成 |
 | `PORT` | 容器内监听端口 | `17986` |
 | `API_USER_NAME` | 管理面板用户名 | `admin` |
-| `HISTORY_RETENTION_DAYS` | 历史数据保留天数（30 = 保留约一个月） | `14` |
+| `HISTORY_RETENTION_DAYS` | 历史数据保留天数（也可以在面板里直接设置，面板优先） | `14` |
 | `GEOIP_PROVIDER` | 地区识别：`maxmind` / `ipinfo` / `off` | `maxmind` |
 | `GEOIP_MMDB_PATH` | 自定义 GeoLite2 数据库路径 | 空 |
 | `IPINFO_TOKEN` | ipinfo.io token（可选） | 空 |
@@ -269,7 +269,9 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 | `/opt/probedeck/data/do-storage.json` | 实时广播模块的少量运行状态 |
 
 备份：停止容器后复制整个 `/opt/probedeck/data/` 目录；恢复：放回后启动。
-历史数据保留时长**可自定义**：默认约两周（`HISTORY_RETENTION_DAYS=14`），改成 `30` 即保留约一个月；
+历史数据保留时长**可自定义**，两种方式（面板设置优先）：
+1. **面板设置（推荐）**：管理面板 → 设置 → 显示选项 → 「历史数据保留天数」，可选 7 / 14 / 30 / 60 / 90 / 180 / 365 天（选「自动」则使用默认 14 天）；
+2. 环境变量 `HISTORY_RETENTION_DAYS=30`（适合批量部署；面板设置为「自动」时生效）。
 内部按"轮换周期 = 保留天数的一半"自动清理旧数据，数据库体积保持很小。
 
 ## 从源码直接运行（不用 Docker）

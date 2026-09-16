@@ -232,6 +232,20 @@
             </select>
           </div>
         </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label">
+              {{ trans.historyRetentionDays }}
+              <HelpTooltip :text="trans.historyRetentionDaysTip" />
+            </label>
+            <select v-model="settings.history_retention_days" class="form-select">
+              <option value="">{{ trans.historyRetentionDayAuto }}</option>
+              <option v-for="option in historyRetentionDayOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </div>
+          <div class="form-group flex-1"></div>
+        </div>
       </div>
 
       <div class="settings-section">
@@ -684,7 +698,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import HelpTooltip from '../../../components/HelpTooltip.vue'
-import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY } from '../../../utils/constants.js'
+import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY, HISTORY_RETENTION_DAY_OPTIONS } from '../../../utils/constants.js'
 import { currentLang } from '../../../utils/i18n.js'
 import { PING_NODE_FIELDS, validatePingNode } from '../../../utils/pingNode.js'
 
@@ -794,6 +808,15 @@ const longHistoryPointOptions = computed(() => (
     label: props.trans.historyPointCount
       ? props.trans.historyPointCount.replace('{points}', points)
       : `${points} points`
+  }))
+))
+
+const historyRetentionDayOptions = computed(() => (
+  HISTORY_RETENTION_DAY_OPTIONS.map(days => ({
+    value: String(days),
+    label: props.trans.historyRetentionDayOption
+      ? props.trans.historyRetentionDayOption.replace('{days}', days)
+      : `${days} days`
   }))
 ))
 

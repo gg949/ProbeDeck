@@ -550,6 +550,13 @@ const normalizeLongHistoryPointsSetting = (value) => {
   )
 }
 
+const normalizeHistoryRetentionDaysSetting = (value) => {
+  if (value === undefined || value === null || value === '') return ''
+  const days = Number(value)
+  if (!Number.isFinite(days) || days <= 0) return ''
+  return String(Math.max(7, Math.min(365, Math.round(days))))
+}
+
 const normalizeFrontendWsTimeoutMinutesSetting = (value) => {
   const minutes = Number(value)
   return Number.isInteger(minutes) && minutes >= 0 && minutes <= FRONTEND_WS_TIMEOUT_MINUTES_MAX
@@ -777,6 +784,7 @@ const settings = ref({
   wss_report_hours: Array.from({ length: 24 }, (_, hour) => hour),
   frontend_ws_timeout_minutes: 0,
   long_history_points: String(HISTORY.DEFAULT_LONG_RANGE_POINTS),
+  history_retention_days: '',
   tg_notify: '0',
   expire_reminder: '0',
   resource_alert_rules: [],
@@ -1227,6 +1235,7 @@ const loadSettings = async () => {
         wss_report_hours: normalizeWssReportHoursSetting(settingsData.wss_report_hours),
         frontend_ws_timeout_minutes: normalizeFrontendWsTimeoutMinutesSetting(settingsData.frontend_ws_timeout_minutes),
         long_history_points: normalizeLongHistoryPointsSetting(settingsData.long_history_points),
+        history_retention_days: normalizeHistoryRetentionDaysSetting(settingsData.history_retention_days),
         tg_notify: normalizeTgNotifySetting(settingsData.tg_notify),
         expire_reminder: normalizeExpireReminderSetting(settingsData.expire_reminder),
         resource_alert_rules: normalizeResourceAlertRulesSetting(settingsData.resource_alert_rules),
@@ -1409,6 +1418,7 @@ const saveSettings = async () => {
       wss_report_hours: normalizeWssReportHoursSetting(settings.value.wss_report_hours),
       frontend_ws_timeout_minutes: String(frontendWsTimeoutMinutes),
       long_history_points: normalizeLongHistoryPointsSetting(settings.value.long_history_points),
+      history_retention_days: normalizeHistoryRetentionDaysSetting(settings.value.history_retention_days),
       tg_notify: normalizeTgNotifySetting(settings.value.tg_notify),
       expire_reminder: normalizeExpireReminderSetting(settings.value.expire_reminder),
       resource_alert_rules: normalizeResourceAlertRulesSetting(settings.value.resource_alert_rules),

@@ -22,6 +22,8 @@ export const HISTORY = {
   DEFAULT_LONG_RANGE_POINTS: 120
 }
 
+export const HISTORY_RETENTION_DAY_OPTIONS = [7, 14, 30, 60, 90, 180, 365]
+
 export const LATENCY_WINDOW = {
   POINTS: 20,
   HOURS: 2

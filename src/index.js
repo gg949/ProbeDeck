@@ -6,7 +6,7 @@ import { serveFrontend } from './handlers/frontend.js';
 import { handleUpdate, handleWebSocketUpgrade, handleUpdateWebSocketUpgrade } from './handlers/update.js';
 import { handleServerAPI, handleServersAPI } from './handlers/dashboard.js';
 import { handleTheme } from './handlers/theme.js';
-import { isValidThemeOptions, loadSettings, loadSiteSettings, loadAppearanceOptions, normalizeFrontendWsTimeoutMinutes, normalizeLongHistoryPoints, saveThemeOptions, setDebug, debug, getSettingByKey } from './utils/settings.js';
+import { isValidThemeOptions, loadSettings, loadSiteSettings, loadAppearanceOptions, normalizeFrontendWsTimeoutMinutes, normalizeLongHistoryPoints, resolveHistoryRetentionDays, saveThemeOptions, setDebug, debug, getSettingByKey } from './utils/settings.js';
 import { omitNullLossProbeFields } from './handlers/dashboard.js';
 import { checkAuth, simpleAuthResponse } from './middleware/auth.js';
 import { getServerDetail, getMetricsHistoryCache, setMetricsHistoryCache, getCacheDuration } from './utils/cache.js';
@@ -125,8 +125,8 @@ async function fetchHistoryData(env, request, id, hours, columns, sys = null) {
   const server = await getServerDetail(env.DB, id, isLoggedIn);
   if (!server) return createNotFoundResponse();
   
-  // 查询上限：由 HISTORY_RETENTION_DAYS 控制（默认 14 天；下限 7 天，保持与原版一致）
-  const retentionDays = Number(env.HISTORY_RETENTION_DAYS) || 14;
+  // 查询上限：由面板设置（history_retention_days）或环境变量 HISTORY_RETENTION_DAYS 控制（默认 14 天；下限 7 天）
+  const retentionDays = resolveHistoryRetentionDays(sys?.history_retention_days, env.HISTORY_RETENTION_DAYS);
   const maxHistoryHours = Math.max(168, retentionDays * 24);
   const clampedHours = Math.min(hours, maxHistoryHours);
   const cacheDuration = getCacheDuration(clampedHours);
@@ -482,8 +482,9 @@ export default {
         debug('[Cron] 资源负载告警检测完成');
       }
     } else if (cron === '0 * * * *') {
-      // 保留时长可配置（HISTORY_RETENTION_DAYS，默认 14 天）；轮换周期 = 保留天数的一半
-      const retentionDays = Number(env.HISTORY_RETENTION_DAYS) || 14;
+      // 保留时长可配置（面板设置 history_retention_days 或环境变量 HISTORY_RETENTION_DAYS，默认 14 天）；轮换周期 = 保留天数的一半
+      const retentionSettings = await loadSiteSettings(env.DB);
+      const retentionDays = resolveHistoryRetentionDays(retentionSettings?.history_retention_days, env.HISTORY_RETENTION_DAYS);
       const cycleDays = Math.max(1, Math.round(retentionDays / 2));
       const cycleMs = cycleDays * 24 * 60 * 60 * 1000;
       const lastRotationRaw = await getLastRotationAt(env.DB);
