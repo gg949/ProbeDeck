@@ -295,7 +295,8 @@ function normalizeThemeAssetUrls(html) {
 // 第三方主题品牌替换：主题内置的 CF-Server-Monitor 字样 → ProbeDeck
 const THEME_BRAND_PAIRS = [
   ['github.com/huilang-me/CF-Server-Monitor', 'github.com/gg949/ProbeDeck'],
-  ['CF-Server-Monitor', 'ProbeDeck']
+  ['CF-Server-Monitor', 'ProbeDeck'],
+  ['CF Server Monitor', 'ProbeDeck']
 ];
 
 function rebrandThemeContent(text) {
