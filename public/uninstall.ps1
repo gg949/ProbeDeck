@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    卸载 CF-Server-Monitor Windows PowerShell 探针。
+    卸载 ProbeDeck Windows 探针（自动识别 Go 版与旧版 PowerShell 探针）。
 .EXAMPLE
     .\uninstall.ps1
 .EXAMPLE
@@ -14,6 +14,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $TaskName = 'CFProbe'
+$GoTaskName = 'cf-probe'
+$GoInstallDir = Join-Path ${env:ProgramFiles} 'cf-probe'
+$GoBinary = Join-Path $GoInstallDir 'cf-probe.exe'
+$GoDataDir = Join-Path $env:ProgramData 'cf-probe'
 
 function Test-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -50,13 +54,25 @@ if (-not (Test-Administrator)) {
 }
 
 if (-not $Force) {
-    $answer = Read-Host 'Remove the CFProbe scheduled task and stop probe processes? [y/N]'
+    $answer = Read-Host '这会停止并删除 ProbeDeck 探针及其数据。继续吗？[y/N]'
     if ($answer -notmatch '(?i)^(y|yes)$') {
-        Write-Info 'Cancelled.'
+        Write-Info '已取消。'
         exit 0
     }
 }
 
+# ── Go 版探针：优先调用自带卸载（任务、进程、文件与延迟删除由它处理）──
+if (Test-Path -LiteralPath $GoBinary) {
+    Write-Info "检测到 Go 版探针，调用自带卸载程序：$GoBinary"
+    try {
+        & $GoBinary uninstall
+        Write-Info 'Go 版探针自带卸载完成。'
+    } catch {
+        Write-WarningText "自带卸载异常，继续手动清理残留：$($_.Exception.Message)"
+    }
+}
+
+# ── 旧版 PowerShell 探针：计划任务与脚本清理 ──
 # This task name is registered by cf-server-monitor.ps1 Install-Service.
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 $AgentScript = if ($task) { Get-AgentScriptFromTask -ScheduledTask $task } else { $null }
@@ -77,6 +93,14 @@ if ($task) {
     Write-Info "Removed scheduled task: $TaskName"
 } else {
     Write-Info "Scheduled task not found: $TaskName"
+}
+
+# ── Go 版计划任务兜底（二进制已被手动删除等残留场景）──
+$goTask = Get-ScheduledTask -TaskName $GoTaskName -ErrorAction SilentlyContinue
+if ($goTask) {
+    Stop-ScheduledTask -TaskName $GoTaskName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $GoTaskName -Confirm:$false
+    Write-Info "Removed scheduled task: $GoTaskName"
 }
 
 # Stop probe and pending auto-update runner processes before their files are removed.
@@ -100,6 +124,13 @@ try {
 }
 Write-Info "Stopped probe processes: $stopped"
 
+# Go 版探针进程兜底。
+$goRunning = @(Get-Process -Name 'cf-probe' -ErrorAction SilentlyContinue)
+if ($goRunning.Count -gt 0) {
+    $goRunning | Stop-Process -Force -ErrorAction SilentlyContinue
+    Write-Info "Stopped Go probe processes: $($goRunning.Count)"
+}
+
 foreach ($file in $DataFiles + $AgentScript) {
     if (Test-Path -LiteralPath $file) {
         Remove-Item -LiteralPath $file -Force
@@ -117,4 +148,16 @@ foreach ($directory in @($env:TEMP, $env:TMP, $ScriptDir) | Select-Object -Uniqu
     }
 }
 
-Write-Host 'CF-Server-Monitor Windows probe has been completely removed.' -ForegroundColor Green
+# ── Go 版安装残留兜底（程序目录与数据目录）──
+foreach ($dir in @($GoInstallDir, $GoDataDir)) {
+    if (Test-Path -LiteralPath $dir) {
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $dir)) {
+            Write-Info "Removed: $dir"
+        } else {
+            Write-WarningText "无法完全删除（文件可能被占用，重启后会自动清理）: $dir"
+        }
+    }
+}
+
+Write-Host 'ProbeDeck Windows probe has been completely removed.' -ForegroundColor Green
