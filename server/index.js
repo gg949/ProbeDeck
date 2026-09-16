@@ -204,6 +204,45 @@ async function writeFetchResponse(res, req, response) {
   stream.pipe(res);
 }
 
+// ── 7.5) CORS：对应原版 Workers 的 CORS_ALLOWED_ORIGINS 环境变量 ───────────
+function resolveCorsOrigin(req, env) {
+  const origin = req.headers.origin || '';
+  if (!origin) return '';
+  const allowed = String(env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return allowed.includes(origin) ? origin : '';
+}
+
+function buildCorsHeaders(origin, req) {
+  const headers = new Headers();
+  headers.set('Access-Control-Allow-Origin', origin);
+  headers.set('Access-Control-Allow-Credentials', 'true');
+  headers.set(
+    'Access-Control-Allow-Headers',
+    req.headers['access-control-request-headers'] ||
+      'Content-Type, Authorization, X-Turnstile-Token, X-Turnstile-Verified'
+  );
+  headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  headers.set('Access-Control-Max-Age', '86400');
+  return headers;
+}
+
+function withCorsHeaders(response, req, env) {
+  const origin = resolveCorsOrigin(req, env);
+  if (!origin) return response;
+  const headers = new Headers(response.headers);
+  buildCorsHeaders(origin, req).forEach((value, key) => headers.set(key, value));
+  const vary = headers.get('Vary');
+  headers.set('Vary', vary && !/origin/i.test(vary) ? `${vary}, Origin` : 'Origin');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
 // ── 8) 拒绝 WebSocket 升级时，直接以裸 socket 写回 HTTP 响应 ───────────────
 async function writeRawHttpResponse(socket, response) {
   if (socket.destroyed) return;
@@ -303,7 +342,13 @@ const server = http.createServer(async (req, res) => {
     const staticResponse = faviconResponse || cfMigrateResponse || (await env.ASSETS.tryServeStatic(request));
     const response = staticResponse || (await worker.fetch(request, env, createCtx()));
 
-    await writeFetchResponse(res, req, response);
+    // CORS：主题跨域部署时放行白名单来源（OPTIONS 预检直接响应）
+    if (req.method === 'OPTIONS' && resolveCorsOrigin(req, env)) {
+      await writeFetchResponse(res, req, withCorsHeaders(new Response(null, { status: 204 }), req, env));
+      return;
+    }
+
+    await writeFetchResponse(res, req, withCorsHeaders(response, req, env));
   } catch (e) {
     console.error('[server] 请求处理失败:', e);
     if (!res.headersSent) {

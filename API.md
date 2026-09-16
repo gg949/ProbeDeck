@@ -1,9 +1,11 @@
-# CF-Server-Monitor 全局 API 文档
+# ProbeDeck 全局 API 文档
 
-> 面向 CF-Server-Monitor 项目维护者和集成方的全局 REST / WebSocket API 参考。
-> 本文档覆盖 Workers 全部公开端点、管理端端点、维护端点、鉴权机制、错误码、数据结构与 WebSocket 实时推送协议。
+> 面向 ProbeDeck（ProbeDeck 的 Docker / VPS 移植版）维护者和集成方的全局 REST / WebSocket API 参考。
+> 本文档覆盖全部公开端点、管理端端点、维护端点、鉴权机制、错误码、数据结构与 WebSocket 实时推送协议。
 >
-> **Base URL**：`https://<your-worker-domain>`（部署后由 Cloudflare Workers 提供）
+> **ProbeDeck（Docker / VPS 版）架构对应说明**：文档中的 Cloudflare Workers 概念对应单进程 Node 服务端；D1 对应本地 SQLite；Durable Objects 对应内置实时广播服务；Workers Static Assets 对应内置静态资源服务。**API 端点、数据结构与 WebSocket 协议与 Cloudflare Workers 原版完全一致**，对接原版的主题 / 工具 / 探针无需任何改动。
+>
+> **Base URL**：`http://<你的面板地址>:17986`（Docker 部署后由面板直接提供）
 >
 > **最后核对源码日期**：`2026-09-07`
 >
@@ -76,13 +78,13 @@
 
 ### 0.1 鉴权机制
 
-项目使用 **三套并行的鉴权机制**，按接口范围区分使用。所有请求还依赖非空的 `env.API_SECRET`；未配置时 Worker 会在路由处理前返回 `400 { "error": "API_SECRET is required", "code": 400 }`。
+项目使用 **三套并行的鉴权机制**，按接口范围区分使用。所有请求还依赖非空的 `env.API_SECRET`；未配置时服务端会在路由处理前返回 `400 { "error": "API_SECRET is required", "code": 400 }`。
 
-#### A. 探针 Secret（Agent → Worker）
+#### A. 探针 Secret（Agent → 面板）
 
 - **使用位置**：`POST /update`
 - **方式**：请求体字段 `secret`
-- **值**：必须等于 Worker 环境变量 `API_SECRET`
+- **值**：必须等于 面板环境变量 `API_SECRET`
 - **失败返回**：`401 { "error": "Invalid secret", "code": 401 }`
 
 #### B. Basic Auth（管理登录 → JWT）
@@ -144,9 +146,9 @@
    ```
    X-Turnstile-Token: <token from cloudflare>
    ```
-4. Worker 用 `site_options.turnstile_secret_key` 调用 `https://challenges.cloudflare.com/turnstile/v0/siteverify` 验证。
-5. ~~**验证成功后**，Worker 通过 `X-Turnstile-Verified` 这个 **加密 Header** 给客户端发“已验证凭证”。~~ **2026-07-26 修订**：当前实现通过 `/api/config` 响应体的 `turnstile_verified` 字段返回 AES-GCM 加密凭证，有效期 **3600 秒**。代码会计算同名响应 Header 的值，但当前未实际写入 Header。
-6. 客户端也可以把 `X-Turnstile-Verified` 再次带回，Worker 会优先验证该 Header（验证有效期）。
+4. 服务端用 `site_options.turnstile_secret_key` 调用 `https://challenges.cloudflare.com/turnstile/v0/siteverify` 验证。
+5. ~~**验证成功后**，服务端通过 `X-Turnstile-Verified` 这个 **加密 Header** 给客户端发“已验证凭证”。~~ **2026-07-26 修订**：当前实现通过 `/api/config` 响应体的 `turnstile_verified` 字段返回 AES-GCM 加密凭证，有效期 **3600 秒**。代码会计算同名响应 Header 的值，但当前未实际写入 Header。
+6. 客户端也可以把 `X-Turnstile-Verified` 再次带回，服务端会优先验证该 Header（验证有效期）。
 
 **相关请求/响应 Header**：
 
@@ -201,7 +203,7 @@
 
 ### 0.5 限流与配额
 
-- ~~Cloudflare Workers / D1 固定限制为 D1 500 万行读、10 万行写、Workers 10 万次请求/日。~~ **2026-07-26 修订**：配额取决于 Cloudflare 当前套餐与计费策略，不属于本项目 API 的固定契约，应以 Cloudflare Dashboard 和官方文档为准。
+- ~~Cloudflare Workers / D1 固定限制为 D1 500 万行读、10 万行写、Workers 10 万次请求/日。~~ **2026-07-26 修订**：配额取决于 Cloudflare 当前套餐与计费策略，不属于本项目 API 的固定契约，应以 Cloudflare Dashboard 和官方文档为准。**ProbeDeck（Docker / VPS 版）无此类配额限制。**
 - `/admin/api?action=d1_usage` 可查询当前账户 UTC 当日用量与 UTC 昨日用量。
 
 ### 0.6 CORS
@@ -413,7 +415,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   - `503 { "error": "WebSocket not enabled", "code": 503 }`：未绑定 `METRICS_BROADCASTER` Durable Object
   - `426 Expected WebSocket upgrade request`：`GET /update` 未携带 `Upgrade: websocket`
   - `403 Forbidden`：设置了 WebSocket `Origin`，且不在 `CORS_ALLOWED_ORIGINS` 中
-  - `500 { "error": "WebSocket error", "code": 500 }`：Worker 转发至 DO 失败
+  - `500 { "error": "WebSocket error", "code": 500 }`：服务端广播转发失败
 - 上报成功：服务端发送 ack，不关闭连接。
   ```json
   { "type": "ack", "ts": 1737638343000, "persisted": true, "nextD1WriteAfterMs": 60000, "nextWssReportAfterMs": 60000 }
@@ -476,10 +478,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 
 **WebSocket 计费注意**
 
-- 建立 `wss://.../update` 连接需要一次 `GET + Upgrade`，该握手按一次 Workers request 计入。
+- 建立 `wss://.../update` 连接需要一次 `GET + Upgrade`，该握手按一次普通请求处理。
 - 连接建立后的 Agent 上报消息由 Durable Object 标准 WebSocket API 接收，不使用 Hibernation API 接管 `/update` 连接；它们作为 Durable Objects WebSocket incoming messages 计量，Cloudflare 计费口径按 `20:1` 折算为 DO requests。
 - 该模式避免高频 Agent 指标消息表现为 hibernation wakeup，但只要 Agent 长连接存在，DO 会保持非休眠状态并产生 duration（GB-s）。前端订阅 `/api/ws` 仍使用 WebSocket Hibernation API。
-- 因此，Agent 应保持长连接；不要每次采样都断开重连。错误 `id` / `secret` 当前在 DO 消息阶段返回错误帧并关闭，避免每次上报都走 Worker 401。
+- 因此，Agent 应保持长连接；不要每次采样都断开重连。错误 `id` / `secret` 当前在 DO 消息阶段返回错误帧并关闭，避免每次上报都走 401 鉴权。
 
 **副作用**
 
@@ -541,7 +543,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 
 | 字段                   | 类型           | 说明                                     |
 | -------------------- | ------------ | -------------------------------------- |
-| `version`            | string       | 当前部署自身 Workers 版本                         |
+| `version`            | string       | 当前部署自身 面板版本                         |
 | `is_public`          | boolean      | 站点是否公开                                     |
 | `authorization`     | boolean      | 当前请求是否携带有效 JWT                           |
 | `turnstile_enabled`  | boolean      | 站点是否启用人机验证                             |
@@ -554,7 +556,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | `default_language`   | string       | 默认语言：`auto` 按浏览器语言自动选择中文或英文 / `zh` 中文 / `en` 英文 |
 | `verified`           | boolean      | 当前 Turnstile 验证状态；有效的验证凭证或本次成功验证的 Token 均可使其为 `true` |
 | `turnstile_verified` | string\|null | 当次验证成功后回写给客户端的"已验证凭证"，客户端应回存并在 1 小时内复用 |
-| `last_workers_version` | string\|null | **仅登录时出现**；远程最新 Workers 版本，来源为 GitHub `version.json`，后端缓存 5 分钟 |
+| `last_workers_version` | string\|null | **仅登录时出现**；远程最新 面板版本，来源为 GitHub `version.json`，后端缓存 5 分钟 |
 | `last_agent_version` | string\|null | **仅登录时出现**；远程最新 Agent 版本，来源为 GitHub `version.json`，后端缓存 5 分钟 |
 | `theme_options`      | object       | 第三方主题自定义配置；未配置时为空对象，匿名请求也会返回 |
 | `frontend_ws_timeout_minutes` | number | 前端实时订阅连接超时分钟数，范围 `0`-`1440`；默认 `0` 表示不超时 |
@@ -665,12 +667,12 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | 字段            | 说明                                                                    |
 | ------------- | --------------------------------------------------------------------- |
 | `servers`     | 已合并最新指标的服务器列表（按 `sort_order ASC`），未登录用户**自动过滤** **`is_hidden = '1'`** |
-| `latestReportUpdates` | 每台服务器最近一次批量上报的采样回放数据，用于新页面连续回放；来自 Worker/DO 内存状态，保留约 5 分钟，进程重启或 DO 回收后允许为空。REST 响应中的样本统一为 `{ ts, data }`，`data` 按探针批量采样包透传；内置探针默认只在普通采样点上报 `cpu`、`ram_total`、`ram_used`、`swap_total`、`swap_used`、`net_in_speed`、`net_out_speed` |
+| `latestReportUpdates` | 每台服务器最近一次批量上报的采样回放数据，用于新页面连续回放；来自服务端内存状态，保留约 5 分钟，进程重启或 DO 回收后允许为空。REST 响应中的样本统一为 `{ ts, data }`，`data` 按探针批量采样包透传；内置探针默认只在普通采样点上报 `cpu`、`ram_total`、`ram_used`、`swap_total`、`swap_used`、`net_in_speed`、`net_out_speed` |
 | `stats`       | 聚合统计：在线阈值 300 秒（5 分钟无上报视为离线）                                          |
 | `regionStats` | 按 ISO 区域码（大写）统计的服务器数                                                  |
 | `sysConfig`   | 当前站点开关：`show_price`、`show_expire`、`show_tf`、`show_three_net_details`、`display_mode`。主题配置请从 `/api/config` 的 `theme_options` 读取。~~旧版示例中的 `site_title` 不在该对象内。~~（2026-07-26 修订） |
 
-> `/api/servers` 的 `latestReportUpdates` 每次请求都会读取 DO 实时状态，并与当前 Worker isolate 内约 5 分钟的最近上报回放合并。`servers[].ping` / `servers[].loss` 只在 `sysConfig.show_three_net_details === true` 时从 D1 最近 2 小时历史抽样返回，最多 20 个真实样本点；主题可从 `/api/config.latency_window` 读取这两个窗口参数。抽样结果在当前 Worker isolate 内缓存约 5 分钟；关闭三网详情时返回空数组且不触发这部分 D1 查询。抽样点保留真实上报时间，不做固定时间戳对齐，也不会用最近点补齐缺口。
+> `/api/servers` 的 `latestReportUpdates` 每次请求都会读取 DO 实时状态，并与当前 服务端内约 5 分钟的最近上报回放合并。`servers[].ping` / `servers[].loss` 只在 `sysConfig.show_three_net_details === true` 时从 D1 最近 2 小时历史抽样返回，最多 20 个真实样本点；主题可从 `/api/config.latency_window` 读取这两个窗口参数。抽样结果在当前 服务端内缓存约 5 分钟；关闭三网详情时返回空数组且不触发这部分 D1 查询。抽样点保留真实上报时间，不做固定时间戳对齐，也不会用最近点补齐缺口。
 
 ***
 
@@ -775,7 +777,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 ```
 
 > `last_updated` 来自最新指标；`timestamp` 是服务器配置记录的创建/导入时间字段，普通编辑不会刷新它。~~两者都表示最近上报时间。~~（2026-07-26 修订）
-> `/api/server` 详情接口不返回新增的 `ping` / `loss` 窗口数组；详情页仍可使用 `ping_ct` / `ping_cu` / `ping_cm` / `ping_bd` 与 `loss_ct` / `loss_cu` / `loss_cm` / `loss_bd` 当前单点值。`latestReportUpdates` 与 `/api/servers` 同名字段形状一致，仅包含当前服务器最近一次批量上报的采样回放包；用于详情页打开时连续回放。REST 样本统一为 `{ ts, data }`，`data` 按探针采样包透传。回放状态保留约 5 分钟，Worker/DO 重启后允许为空数组。
+> `/api/server` 详情接口不返回新增的 `ping` / `loss` 窗口数组；详情页仍可使用 `ping_ct` / `ping_cu` / `ping_cm` / `ping_bd` 与 `loss_ct` / `loss_cu` / `loss_cm` / `loss_bd` 当前单点值。`latestReportUpdates` 与 `/api/servers` 同名字段形状一致，仅包含当前服务器最近一次批量上报的采样回放包；用于详情页打开时连续回放。REST 样本统一为 `{ ts, data }`，`data` 按探针采样包透传。回放状态保留约 5 分钟，服务端重启后允许为空数组。
 
 **失败返回**：
 
@@ -877,7 +879,7 @@ Content-Type: application/json
 - Query：
   - `subscribe`（可选，默认 `all`）：
     - `all` → 订阅所有服务器的最新指标（**批量合并推送，每 5 秒一次**）
-    - `<serverId>` → 只订阅指定服务器；~~收到上报后立即实时推送。~~ **2026-07-26 修订**：同样经过最长约 5 秒的 Worker 合并窗口
+    - `<serverId>` → 只订阅指定服务器；~~收到上报后立即实时推送。~~ **2026-07-26 修订**：同样经过最长约 5 秒的合并窗口
   - `token` / `auth_token` / `ws_token`（私有站点可选）：JWT 登录令牌，用于浏览器 WebSocket 无法设置 `Authorization` Header 的场景
 
 **鉴权**：
@@ -974,7 +976,7 @@ Sec-WebSocket-Version: 13
 - `401 { "error": "Unauthorized", "code": 401 }` —— 私有站点缺少有效 WebSocket JWT
 - `400 Invalid subscription scope` —— URL 中的 `subscribe` 不合法
 - `403 Forbidden` ——设置了 WebSocket `Origin`，且不在 `CORS_ALLOWED_ORIGINS` 中
-- `500 { "error": "WebSocket error", "code": 500 }` —— Worker 转发至 DO 失败
+- `500 { "error": "WebSocket error", "code": 500 }` —— 服务端广播转发失败
 
 **前端使用示例（subscribe=all，批量推送）**：
 
@@ -1027,10 +1029,10 @@ ws.onmessage = (ev) => {
 
 > **鉴权 / Turnstile**：均不参与。
 
-从以下上游读取并规范化主题商店清单，Worker 内存缓存 300 秒：
+从以下上游读取并规范化主题商店清单，服务端内存缓存 300 秒：
 
 ```text
-https://raw.githubusercontent.com/huilang-me/CFSM-Theme-Store/refs/heads/main/themes.json
+https://raw.githubusercontent.com/gg949/ProbeDeck/refs/heads/main/themes.json
 ```
 
 **Response 200**
@@ -1066,7 +1068,7 @@ https://raw.githubusercontent.com/huilang-me/CFSM-Theme-Store/refs/heads/main/th
 | `/admin` | 始终返回内置默认主题的管理后台入口 |
 | `/admin/` | `302` 跳转到 `/admin#admin` |
 | `/assets/*` | 配置或预览第三方主题时反代对应主题 `assets/`；未配置主题时返回 404 |
-| 其他静态路径 | 不走主题反代，由 Workers Static Assets 直接处理，缓存头以 `public/_headers` 为准 |
+| 其他静态路径 | 不走主题反代，由内置静态资源服务直接处理，缓存头以 `public/_headers` 为准 |
 
 **主题 URL 规则**：
 
@@ -1079,9 +1081,9 @@ https://github.com/<owner>/<theme-repo>/tree/<commit-or-branch>[/theme-subdir]
 **反代规则**：
 
 - 只代理主题目录下的 `index.html` 和 `assets/*`
-- GitHub raw 默认 `text/plain` 会被 Worker 按文件后缀修正为 CSS、JS、图片、字体等对应 `Content-Type`
+- GitHub raw 默认 `text/plain` 会被服务端按文件后缀修正为 CSS、JS、图片、字体等对应 `Content-Type`
 - 远程主题 `index.html` 和 `assets/*` 使用 `caches.default` 缓存：commit id 固定版 1 天，分支名版本 1 小时，缓存 key 包含 Git ref、作者、主题目录和资源路径
-- 主题商店列表 `/theme` 使用 Worker 内存缓存 5 分钟
+- 主题商店列表 `/theme` 使用 服务端内存缓存 5 分钟
 - 最终 HTML 会注入站点标题、背景图、自定义 `<head>`、自定义脚本，并移除主题自带 CSP meta
 - CSP 通过 HTTP Response Header 返回，同时设置 `X-Frame-Options: DENY`
 - 主题 `index.html` 不可用时返回 `502 Theme index.html is unavailable`，不会自动回落到内置主题
@@ -1218,7 +1220,7 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled` 或
 
 ***
 
-### 3.5 `action: d1_usage` - D1 / Workers / Durable Objects 用量
+### 3.5 `action: d1_usage` - D1 / Workers / Durable Objects 用量（原版接口；Docker 版返回空数据）
 
 **Request**
 
@@ -1840,7 +1842,7 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 | `udp_conn`                                    | number             | UDP 套接字数                  |
 | `ping_ct` / `ping_cu` / `ping_cm` / `ping_bd` / `ping_node_1` 至 `ping_node_4` | number\|null\|false | 各运营商及自定义节点延时 (ms)；`false` 表示未配置/未上报/未取样（不显示），`null` 表示该轮超时/未取到有效 RTT（显示 Timeout） |
 | `loss_ct` / `loss_cu` / `loss_cm` / `loss_bd` / `loss_node_1` 至 `loss_node_4` | number\|null\|false | 各运营商及自定义节点丢包率 (%)；`false` 表示未配置/未上报/未取样（不显示），`null` 表示没有丢包样本，`0`–`100` 是有效值，`100` 配合对应 `ping_*` 的 `null` 表示全超时 |
-| `ping` / `loss`                               | array              | 仅 `/api/servers` 的 `servers[]` 列表项返回，`/api/server` 详情接口不返回；后台开启三网详情时，从 D1 最近 2 小时历史按时间范围抽样最多 20 个真实样本点，当前 Worker isolate 内缓存约 5 分钟；关闭三网详情时为空数组且不触发这部分 D1 查询。点格式为 `{ ts, ct, cu, cm, bd }`，`ct/cu/cm/bd` 分别对应电信、联通、移动、BGP。`ts` 为真实上报时间，不强制等差对齐，也不会用最近点补齐缺口 |
+| `ping` / `loss`                               | array              | 仅 `/api/servers` 的 `servers[]` 列表项返回，`/api/server` 详情接口不返回；后台开启三网详情时，从 D1 最近 2 小时历史按时间范围抽样最多 20 个真实样本点，当前 服务端内缓存约 5 分钟；关闭三网详情时为空数组且不触发这部分 D1 查询。点格式为 `{ ts, ct, cu, cm, bd }`，`ct/cu/cm/bd` 分别对应电信、联通、移动、BGP。`ts` 为真实上报时间，不强制等差对齐，也不会用最近点补齐缺口 |
 | `ram_total` / `ram_used`                      | number             | MB                        |
 | `swap_total` / `swap_used`                    | number             | MB                        |
 | `disk_total` / `disk_used`                    | number             | MB                        |
@@ -1941,7 +1943,7 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 
 ## 6. 定时任务 (Cron)
 
-Worker 同时注册了 cron 触发器（`scheduled` handler），可在 `wrangler.toml` 配置：
+服务端内置定时任务调度（对应原版的 `scheduled` handler / `wrangler.toml` cron 配置）：
 
 | Cron          | 行为              | 备注                                                             |
 | ------------- | --------------- | -------------------------------------------------------------- |
@@ -2177,7 +2179,7 @@ curl -X POST https://status.example.com/admin/api \
 
 - **2026-09-07**：统一 Ping/丢包取值约定并与 WSS 对齐：`false` / 字段缺失表示未配置、未上报或未取样（前端不显示）；`null` 表示该轮探测超时/未取到有效 RTT（前端显示 Timeout）。历史接口读取旧数据时按同行的 `loss=100` 归位，不再把“未上报”误显示成超时。
 - **2026-08-20**：新增 `frontend_ws_timeout_minutes` 站点设置与 `/api/config` 字段；默认 `0` 不超时，正整数表示前端实时订阅连接的分钟级寿命上限。
-- **2026-07-26**：重新同步 `main` 源码；当前 Workers 版本为 `2.8.0 Beta`，Agent 版本为 `1.3.2`。补充主题商店、主题代理、最新批次缓存、测试通知、服务器导入/导出及探针动态配置，修正鉴权、历史查询、WebSocket、数据库维护和数据结构说明。
+- **2026-07-26**：重新同步 `main` 源码；当前 面板版本为 `2.8.0 Beta`，Agent 版本为 `1.3.2`。补充主题商店、主题代理、最新批次缓存、测试通知、服务器导入/导出及探针动态配置，修正鉴权、历史查询、WebSocket、数据库维护和数据结构说明。
 - ~~**v1.x**：当前文档对应早期 `src/index.js`、`src/handlers/*`、`src/database/schema.js` 主线实现。~~ **2026-07-26 修订**：文档现以 `2.8.0 Beta` 的 `main` 分支实现为准。
 - **Breaking change**：`/admin/api` 由 `GET?action=...` 改为 `POST {action:...}` 模式，Token 校验与 Turnstile 走 Header 通道。
 - **CORS**：普通 HTTP 响应通过 `CORS_ALLOWED_ORIGINS` 环境变量开启跨域；不配置时浏览器跨域读取会失败。WebSocket 握手的特殊行为见 [§0.6](#06-cors)。

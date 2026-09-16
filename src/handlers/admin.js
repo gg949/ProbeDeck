@@ -697,7 +697,7 @@ async function handleSendTestNotificationAction({ data }) {
     return createBadRequestResponse('tgBotTokenRequired');
   }
   try {
-    const testMsg = '这是一条来自 CF Server Monitor 的测试消息。';
+    const testMsg = '这是一条来自 ProbeDeck 的测试消息。';
     const result = await sendNotification({
       tg_bot_token,
       tg_chat_id: tg_chat_id || '',
@@ -713,9 +713,9 @@ async function handleSendTestNotificationAction({ data }) {
     }, testMsg, {
       event: '测试通知',
       emoji: '✅',
-      clients: ['CF Server Monitor'],
+      clients: ['ProbeDeck'],
       count: 1,
-      message: '这是一条来自 CF Server Monitor 的测试消息。'
+      message: '这是一条来自 ProbeDeck 的测试消息。'
     });
     if(result) {
       console.warn('Test notification failed:', result);

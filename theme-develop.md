@@ -1,4 +1,4 @@
-# CF-Server-Monitor 第三方主题开发 API 文档
+# ProbeDeck 第三方主题开发 API 文档
 
 > 面向第三方主题开发作者的 API 参考。
 >
@@ -6,7 +6,7 @@
 >
 > 管理后台固定由默认主题接管；主题中的管理入口只能跳转到 `/admin#admin`。
 
-**Base URL**：`https://<your-worker-domain>`
+**Base URL**：`https://<你的面板地址>`
 
 **统一响应头**：
 
@@ -36,29 +36,29 @@
 
 `config.json` 已废弃，当前前端不会请求或读取 `config.json`。
 
-默认情况下，前端使用当前页面同源地址作为 API Base，即 `window.location.origin`。Worker/Pages 同域部署时无需额外配置。
+默认情况下，前端使用当前页面同源地址作为 API Base，即 `window.location.origin`。面板与主题同域部署时无需额外配置。
 
 纯静态主题（例如 GitHub Pages）通过 HTML meta 标签配置后端地址：
 
 ```html
-<meta name="apiBase" content="https://<your-worker-domain>,https://<your-worker-domain2>">
+<meta name="apiBase" content="https://<你的面板地址>,https://<面板地址2>">
 ```
 
 多个地址用英文逗号分隔。前端会按 `apiBase` 创建对应的 HTTP 请求和 WebSocket 连接，多站模式下每个后端只处理自己返回的服务器 ID。
 
-跨域部署主题时，还需要在每个源站 Cloudflare Workers 的环境变量中添加 `CORS_ALLOWED_ORIGINS`，位置和添加 `API_SECRET` 相同。把本地开发地址和最终上线域名加入白名单；如果 `API_BASE` 配置了多个 Workers，每个 Workers 都要添加这一项。
+跨域部署主题时，还需要在面板服务器的环境变量中添加 `CORS_ALLOWED_ORIGINS`（Docker 部署通过 `-e CORS_ALLOWED_ORIGINS=...` 传入；Cloudflare Workers 部署则加到 Worker 环境变量）。把本地开发地址和最终上线域名加入白名单；如果 `API_BASE` 配置了多个面板地址，每个都要添加这一项。
 
 ```
 https://localhost:5173,https://[你的github用户名].github.io
 ```
 
-该值只填写 origin，多个值用英文逗号分隔，不要包含路径、查询参数或结尾 `/`。如果线上主题域名不是 Worker 同源域名，也必须加入这里，否则浏览器会拦截 API 请求和 WebSocket 连接。
+该值只填写 origin，多个值用英文逗号分隔，不要包含路径、查询参数或结尾 `/`。如果线上主题域名不是面板同源域名，也必须加入这里，否则浏览器会拦截 API 请求和 WebSocket 连接。
 
 使用项目内置静态主题构建脚本时，需要在主题项目 `.env` 中配置：
 
 | 环境变量 | 说明 | 默认值 |
 | --- | --- | --- |
-| `API_BASE` | 后端地址，多个地址用英文逗号分隔 | 必填 https://<your-worker-domain> |
+| `API_BASE` | 后端地址，多个地址用英文逗号分隔 | 必填 https://<你的面板地址> |
 | `TITLE` | 静态页面标题 | 选填 |
 | `BACKGROUND_IMAGE` | 静态页面背景图 | 选填 |
 | `CSP_API` | 追加到 `connect-src` 的 API 白名单 | 选填 |
@@ -74,7 +74,7 @@ npm run build:github-page
 
 ### 0.2 主题构建产物约定
 
-主题完成后提交到 [huilang-me/CFSM-Theme-Store](https://github.com/huilang-me/CFSM-Theme-Store) 项目。
+主题完成后提交到 [gg949/ProbeDeck](https://github.com/gg949/ProbeDeck) 仓库的 `themes.json`（提 PR 或 issue 均可）。
 
 主题构建产物仅需要：
 
@@ -99,7 +99,7 @@ my-theme/
 - 旗帜和 OS 图标走默认皮肤静态文件，不要打包进主题：旗帜使用 `/flags/<code>.svg`，OS 图标使用 `/os-icons/<filename>`
 - 站点标题、背景图、自定义 `<head>`、自定义脚本由用户后台外观设置控制，主题不要把这些配置写死
 - 主题不可用时应让页面暴露加载错误，不要在主题内静默跳转到其他页面
-- 主题底部需要展示 `Powered by CF-Server-Monitor`，并链接到 [https://github.com/huilang-me/CF-Server-Monitor/](https://github.com/huilang-me/CF-Server-Monitor/)；建议同时输出 `/api/config` 返回的 `version`，例如 `Powered by CF-Server-Monitor v2.7.12 Beta`
+- 主题底部需要展示 `Powered by ProbeDeck`，并链接到 [https://github.com/gg949/ProbeDeck/](https://github.com/gg949/ProbeDeck/)；建议同时输出 `/api/config` 返回的 `version`，例如 `Powered by ProbeDeck v2.8.6 Beta`
 
 路由约定：
 
@@ -109,12 +109,12 @@ my-theme/
 
 ### 0.3 版本升级提示
 
-`GET /api/config` 会返回当前 Workers 版本 `version`。当请求带有有效 JWT 时，后端还会查询远程最新版并额外返回：
+`GET /api/config` 会返回当前面板版本 `version`。当请求带有有效 JWT 时，后端还会查询远程最新版并额外返回：
 
-- `last_workers_version`：最新 Workers 版本
+- `last_workers_version`：最新面板版本（字段名沿用上游兼容命名）
 - `last_agent_version`：最新探针 Agent 版本
 
-第三方主题可以将 `version` 与 `last_workers_version` 做字符串比较，自行决定是否展示 Workers 升级提示。`last_agent_version` 仅在登录后返回，可用于可选的 Agent 版本提示。
+第三方主题可以将 `version` 与 `last_workers_version` 做字符串比较，自行决定是否展示版本升级提示。`last_agent_version` 仅在登录后返回，可用于可选的 Agent 版本提示。
 
 未登录访问 `/api/config` 时不会返回 `last_workers_version` / `last_agent_version`，自定义主题不要依赖匿名请求展示升级提示。
 
@@ -210,8 +210,8 @@ Headers: (可选) Authorization: Bearer <jwt>, X-Turnstile-Token / X-Turnstile-V
 
 | 字段                   | 类型           | 说明              |
 | -------------------- | ------------ | --------------- |
-| `version`            | string       | 当前 Workers 版本号 |
-| `last_workers_version` | string\|null | 最新 Workers 版本，仅登录后返回 |
+| `version`            | string       | 当前面板版本号 |
+| `last_workers_version` | string\|null | 最新面板版本，仅登录后返回 |
 | `last_agent_version` | string\|null | 最新 Agent 版本，仅登录后返回 |
 | `is_public`          | boolean      | 是否公开站点             |
 | `authorization`      | boolean      | 是否通过登录验证       |
@@ -342,7 +342,7 @@ Headers: (按需) Authorization: Bearer <jwt>, X-Turnstile-Token/Verified
 | `regionStats` | 按区域统计服务器数量                  |
 | `sysConfig`   | 站点开关配置，控制 UI 显示；主题配置请从 `/api/config` 的 `theme_options` 读取 |
 
-`servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd }`。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从 D1 最近 2 小时历史中抽样这些窗口数据；关闭时为节省 D1 / Workers 消耗，数组为空。
+`servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd }`。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
 
 **示例**：
 
@@ -444,7 +444,7 @@ Headers: (按需) Authorization, X-Turnstile-Token/Verified
 
 `tags` 为英文逗号分隔字符串。`note` 属于管理端内部字段，不从 dashboard 公共接口返回。`disk` 为可选磁盘 IO 指标对象：`read_bps` / `write_bps` 单位为 B/s，`read_iops` / `write_iops` 为 IOPS，`await_ms` 为毫秒，`util` 为百分比；旧探针、旧数据缺失，或者 6 个子字段全为 0 时，API / WebSocket 不返回该对象，主题不应展示依赖磁盘 IO 的图表。`latestReportUpdates` 与 `/api/servers` 同名字段形状一致，REST 样本统一为 `{ ts, data }` 并按探针批量采样包透传；内置探针默认只在普通采样点上报 `cpu`、`ram_total`、`ram_used`、`swap_total`、`swap_used`、`net_in_speed`、`net_out_speed`，每次报告最后一个样本可能额外携带 `disk` 等报告级字段；回放状态保留约 5 分钟，允许为空数组。`gpu` 已废弃，主题应使用 `gpu_info`；新版上报和 WebSocket 实时数据为 `[{ id, name, info }]` 数组，历史/详情 REST 响应中可能是同结构的 JSON 字符串。
 
-`ping` / `loss` 窗口数组仅在 `/api/servers` 的 `servers[]` 中返回，`/api/server` 详情接口不返回新增窗口数组。主题可从 `/api/config` 的 `latency_window` 读取当前窗口参数。只有后台开启三网详情时才会查询窗口数据；关闭时后端仍返回 `ping: []` / `loss: []`，主题不应展示三网小图。开启后，窗口从 D1 历史表最近 2 小时按时间范围抽样，最多 20 个真实样本点，点格式为 `{ ts, ct, cu, cm, bd }`，其中 `ct` / `cu` / `cm` / `bd` 分别对应不同探测线路。时间间隔目标约 6 分钟，但 `ts` 保留真实上报时间，不会强制对齐为等差序列；历史不足、上报中断或某个时间段无数据时不会用最近点补齐，数组可能少于 20 个。该 D1 抽样结果在当前 Worker isolate 内缓存约 5 分钟，缓存不跨 isolate 共享。
+`ping` / `loss` 窗口数组仅在 `/api/servers` 的 `servers[]` 中返回，`/api/server` 详情接口不返回新增窗口数组。主题可从 `/api/config` 的 `latency_window` 读取当前窗口参数。只有后台开启三网详情时才会查询窗口数据；关闭时后端仍返回 `ping: []` / `loss: []`，主题不应展示三网小图。开启后，窗口从历史表最近 2 小时按时间范围抽样，最多 20 个真实样本点，点格式为 `{ ts, ct, cu, cm, bd }`，其中 `ct` / `cu` / `cm` / `bd` 分别对应不同探测线路。时间间隔目标约 6 分钟，但 `ts` 保留真实上报时间，不会强制对齐为等差序列；历史不足、上报中断或某个时间段无数据时不会用最近点补齐，数组可能少于 20 个。该抽样结果在服务端缓存约 5 分钟。
 
 **失败返回**：
 
@@ -566,7 +566,7 @@ Headers: Upgrade: websocket, Connection: Upgrade
 
 **多 apiBase 注意事项**：
 
-当配置了多个 `apiBase` 时，前端会为每个 apiBase 创建独立的 WebSocket 连接。每个连接发送的 `ids` 应只包含该 apiBase 返回的服务器 ID，而非全部服务器 ID。每个 Worker/DO 只知道自己的服务器，传入不属于它的 ID 不会产生任何效果。
+当配置了多个 `apiBase` 时，前端会为每个 apiBase 创建独立的 WebSocket 连接。每个连接发送的 `ids` 应只包含该 apiBase 返回的服务器 ID，而非全部服务器 ID。每个面板实例只知道自己的服务器，传入不属于它的 ID 不会产生任何效果。
 
 **推荐流程（首页/列表页）**：
 

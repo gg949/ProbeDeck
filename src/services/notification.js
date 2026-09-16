@@ -534,7 +534,7 @@ function normalizeNotificationClients(context = {}) {
     .map(client => String(client || '').trim())
     .filter(Boolean);
   if (clients.length > 0) return Array.from(new Set(clients));
-  return ['CF Server Monitor'];
+  return ['ProbeDeck'];
 }
 
 function inferNotificationEmoji(event) {
