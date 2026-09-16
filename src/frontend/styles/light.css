@@ -1,0 +1,90 @@
+/* =============================================
+   Light Theme (浅色终端)
+============================================= */
+
+/* CSS Variables - 核心变量重定义 */
+body.light {
+  --bg-primary: #f5f5f0;
+  --bg-secondary: rgba(232, 232, 224, 0.6);
+  --bg-card: rgba(250, 250, 245, 0.6);
+  --bg-hover: rgba(240, 240, 232, 0.6);
+  --border-color: #d4d4c8;
+  --border-active: #b8b8a8;
+  --text-primary: #2c2c2c;
+  --text-secondary: #5c5c5c;
+  --text-muted: rgba(10, 14, 20, 0.8);
+  --accent-green: #1a7f5a;
+  --accent-blue: #2563eb;
+  --accent-purple: #7c3aed;
+  --accent-pink: #db2777;
+  --accent-yellow: #d97706;
+  --accent-red: #dc2626;
+  --accent-cyan: #0d9488;
+  --input-bg: #ffffff;
+  --input-border: #d4d4c8;
+  --color-inherit: #fff;
+  --color-active: #000;
+}
+
+/* Scanline Effect - 浅色主题使用更淡的扫描线 */
+body.light::before {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.015) 2px,
+    rgba(0, 0, 0, 0.015) 4px
+  );
+}
+
+/* 特殊效果覆盖 - 移除深色主题的发光效果 */
+body.light .site-title,
+body.light .host-name,
+body.light .panel-title,
+body.light .stat-main-value,
+body.light .stat-value,
+body.light .chart-current-value {
+  text-shadow: none;
+}
+
+/* Modal - 浅色主题使用更淡的遮罩 */
+body.light .modal-overlay {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+body.light .modal-dialog {
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+/* Card Hover - 浅色主题使用更淡的阴影 */
+body.light .server-card:hover {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+body.light .chart-card:hover {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+/* Pulse Dot - 浅色主题的发光效果 */
+body.light .pulse-dot.online {
+  box-shadow: 0 0 6px rgba(26, 127, 90, 0.3);
+}
+
+body.light .pulse-dot.offline {
+  box-shadow: 0 0 6px rgba(220, 38, 38, 0.3);
+}
+
+/* Input Focus - 浅色主题的聚焦效果 */
+body.light .toolbar-input:focus,
+body.light .form-input:focus,
+body.light .form-textarea:focus {
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.1);
+}
+
+/* Highlight Box - 浅色主题的特殊高亮 */
+body.light .highlight-box {
+  background: #fffbeb;
+  border-color: #fde68a !important;
+}
+
+/* 响应式布局 - 浅色主题继承 main.css 的响应式样式 */

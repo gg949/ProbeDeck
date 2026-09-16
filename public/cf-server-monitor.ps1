@@ -1,0 +1,2039 @@
+﻿#Requires -Version 5.1
+<#
+.SYNOPSIS
+    CF-Server-Monitor Windows 探针 (PowerShell 版)
+.DESCRIPTION
+    无 Python 依赖，纯 PowerShell 实现，功能对齐 Linux install.sh
+.PARAMETER Action
+    install   - 安装并启动探针服务
+    uninstall - 卸载探针服务
+    run       - 前台运行（调试用）
+    status    - 查看运行状态
+    stop      - 停止探针
+.PARAMETER Id
+    服务器 ID
+.PARAMETER Secret
+    API 认证密钥
+.PARAMETER Url
+    Worker 上报地址
+.PARAMETER CollectInterval
+    兼容参数。Windows PowerShell 版不使用 samples 采样缓存，始终按上报间隔采集并上报。
+.PARAMETER ReportInterval
+    上报间隔（秒），默认 60
+.PARAMETER ResetDay
+    流量重置日（1-31, 0=不重置），默认 1
+.PARAMETER AutoUpdate
+    自动更新探针（0/1），默认 0
+.PARAMETER RxCorrection
+    下行流量校正（GB），直接设置当月下行数据
+.PARAMETER TxCorrection
+    上行流量校正（GB），直接设置当月上行数据
+.PARAMETER CtNode
+    自定义 CT 测试节点
+.PARAMETER CuNode
+    自定义 CU 测试节点
+.PARAMETER CmNode
+    自定义 CM 测试节点
+.PARAMETER BdNode
+    自定义 BD 测试节点
+.EXAMPLE
+    .\cf-server-monitor.ps1 install -Id "xxx" -Secret "yyy" -Url "https://worker.example.com/update"
+.EXAMPLE
+    .\cf-server-monitor.ps1 install -Id "xxx" -Secret "yyy" -Url "https://worker.example.com/update" -RxCorrection 10 -TxCorrection 5
+.EXAMPLE
+    .\cf-server-monitor.ps1 uninstall
+#>
+param(
+    [Parameter(Position=0)]
+    [ValidateSet("install","uninstall","run","tray","status","stop")]
+    [string]$Action = "run",
+
+    [string]$Id = "",
+    [string]$Secret = "",
+    [string]$Url = "",
+    [string]$CollectInterval = "0",
+    [string]$ReportInterval = "60",
+    [string]$ResetDay = "1",
+    [string]$AutoUpdate = "",
+    [string]$RxCorrection = "",
+    [string]$TxCorrection = "",
+    [string]$CtNode = "",
+    [string]$CuNode = "",
+    [string]$CmNode = "",
+    [string]$BdNode = "",
+    [string]$Interface = "",
+    
+    [switch]$STA
+)
+
+if (-not $STA -and $host.Runspace.ApartmentState -ne 'STA') {
+    if ($MyInvocation.MyCommand.Path) {
+        $scriptPath = $MyInvocation.MyCommand.Path
+    } elseif ($PSCommandPath) {
+        $scriptPath = $PSCommandPath
+    } else {
+        $scriptPath = Join-Path (Get-Location).Path "cf-server-monitor.ps1"
+    }
+    $argList = "-NoProfile -ExecutionPolicy Bypass -STA -File `"$scriptPath`" $Action -STA"
+    if ($Id) { $argList += " -Id `"$Id`"" }
+    if ($Secret) { $argList += " -Secret `"$Secret`"" }
+    if ($Url) { $argList += " -Url `"$Url`"" }
+    if ($CollectInterval) { $argList += " -CollectInterval `"$CollectInterval`"" }
+    if ($ReportInterval) { $argList += " -ReportInterval `"$ReportInterval`"" }
+    if ($ResetDay) { $argList += " -ResetDay `"$ResetDay`"" }
+    if ($AutoUpdate -ne "") { $argList += " -AutoUpdate `"$AutoUpdate`"" }
+    if ($RxCorrection) { $argList += " -RxCorrection `"$RxCorrection`"" }
+    if ($TxCorrection) { $argList += " -TxCorrection `"$TxCorrection`"" }
+    if ($CtNode) { $argList += " -CtNode `"$CtNode`"" }
+    if ($CuNode) { $argList += " -CuNode `"$CuNode`"" }
+    if ($CmNode) { $argList += " -CmNode `"$CmNode`"" }
+    if ($BdNode) { $argList += " -BdNode `"$BdNode`"" }
+    if ($Interface) { $argList += " -Interface `"$Interface`"" }
+    Start-Process powershell.exe -ArgumentList $argList
+    exit 0
+}
+
+$DebugPreference = "SilentlyContinue"
+
+$ErrorActionPreference = "Stop"
+
+$APP_NAME = "CF-Server-Monitor"
+$AGENT_VERSION = "1.3.8"
+$TASK_NAME = "CFProbe"
+# 获取脚本所在目录
+if ($MyInvocation.MyCommand.Path) {
+    $SCRIPT_PATH = $MyInvocation.MyCommand.Path
+} elseif ($PSCommandPath) {
+    $SCRIPT_PATH = $PSCommandPath
+} else {
+    $SCRIPT_PATH = Join-Path (Get-Location).Path "cf-server-monitor.ps1"
+}
+$SCRIPT_DIR = Split-Path -Parent $SCRIPT_PATH
+$CONFIG_DIR = $SCRIPT_DIR
+$CONFIG_FILE = Join-Path $CONFIG_DIR "cf_probe_config.json"
+$LOG_FILE = Join-Path $CONFIG_DIR "cf_probe.log"
+$TRAFFIC_FILE = Join-Path $CONFIG_DIR "cf_probe_traffic.dat"
+
+$MAX_TRAFFIC_CORRECTION_GB = 1000000
+
+$MAX_LOG_SIZE = 1MB
+
+# ============================================================
+# 工具函数
+# ============================================================
+
+function Write-Log {
+    param([string]$Message, [string]$Level = "INFO")
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $line = "[$ts] [$Level] $Message"
+    try {
+        if (Test-Path $LOG_FILE) {
+            $size = (Get-Item $LOG_FILE).Length
+            if ($size -gt $MAX_LOG_SIZE) {
+                $lines = [System.IO.File]::ReadAllLines($LOG_FILE, [System.Text.Encoding]::UTF8)
+                if ($lines.Length -gt 0) {
+                    $targetSize = 102400
+                    $totalBytes = 0
+                    $keepCount = 0
+                    for ($i = $lines.Length - 1; $i -ge 0; $i--) {
+                        $lineBytes = [System.Text.Encoding]::UTF8.GetByteCount($lines[$i] + "`r`n")
+                        if ($totalBytes + $lineBytes -gt $targetSize) { break }
+                        $totalBytes += $lineBytes
+                        $keepCount++
+                    }
+                    if ($keepCount -eq 0) { $keepCount = 1 }
+                    if ($keepCount -gt 0 -and $keepCount -lt $lines.Length) {
+                        $startIdx = $lines.Length - $keepCount
+                        $keepLines = New-Object string[] $keepCount
+                        [Array]::Copy($lines, $startIdx, $keepLines, 0, $keepCount)
+                        [System.IO.File]::WriteAllLines($LOG_FILE, $keepLines, [System.Text.Encoding]::UTF8)
+                    }
+                }
+            }
+        }
+        [System.IO.File]::AppendAllText($LOG_FILE, $line + "`r`n", [System.Text.Encoding]::UTF8)
+    } catch {
+        # 日志写入失败，忽略
+    }
+    Write-Host $line
+}
+
+function Load-Config {
+    Write-Log "尝试加载配置文件: $CONFIG_FILE" "DEBUG"
+    if (Test-Path $CONFIG_FILE) {
+        try {
+            $content = Get-Content $CONFIG_FILE -Raw -Encoding UTF8
+            $raw = $content | ConvertFrom-Json
+            Write-Log "配置文件加载成功" "INFO"
+            # 清理 URL
+            if ($raw.worker_url) {
+                $raw.worker_url = $raw.worker_url.Trim().Trim("'").Trim('"')
+            }
+            # 同时清理其他可能包含引号的字段
+            if ($raw.secret) {
+                $raw.secret = $raw.secret.Trim().Trim("'").Trim('"')
+            }
+            if ($raw.server_id) {
+                $raw.server_id = $raw.server_id.Trim().Trim("'").Trim('"')
+            }
+            return $raw
+        } catch {
+            Write-Log "配置文件加载失败: $_" "ERROR"
+            Write-Log "错误详情: $($_.Exception.Message)" "ERROR"
+            return $null
+        }
+    } else {
+        Write-Log "配置文件不存在: $CONFIG_FILE" "WARN"
+        return $null
+    }
+}
+
+function Save-Config {
+    param($Config)
+    $tempFile = "$CONFIG_FILE.tmp"
+    $backupFile = "$CONFIG_FILE.bak"
+    try {
+        if (-not (Test-Path $CONFIG_DIR)) {
+            New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null
+        }
+        $json = $Config | ConvertTo-Json -Depth 10
+        [System.IO.File]::WriteAllText($tempFile, $json, (New-Object System.Text.UTF8Encoding($false)))
+        if (Test-Path $CONFIG_FILE) {
+            Remove-Item -LiteralPath $backupFile -Force -ErrorAction SilentlyContinue
+            [System.IO.File]::Replace($tempFile, $CONFIG_FILE, $backupFile)
+            Remove-Item -LiteralPath $backupFile -Force -ErrorAction SilentlyContinue
+        } else {
+            Move-Item -LiteralPath $tempFile -Destination $CONFIG_FILE
+        }
+        Write-Log "配置文件已保存: $CONFIG_FILE" "DEBUG"
+        return $true
+    } catch {
+        Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $CONFIG_FILE) -and (Test-Path -LiteralPath $backupFile)) {
+            Move-Item -LiteralPath $backupFile -Destination $CONFIG_FILE -Force -ErrorAction SilentlyContinue
+        } else {
+            Remove-Item -LiteralPath $backupFile -Force -ErrorAction SilentlyContinue
+        }
+        Write-Log "保存配置文件失败: $_" "ERROR"
+        return $false
+    }
+}
+
+function Get-ConfigProperty {
+    param($Config, [string]$Name, $Default = $null)
+    if ($null -eq $Config) { return $Default }
+    if ($Config -is [hashtable]) {
+        if ($Config.ContainsKey($Name)) { return $Config[$Name] }
+        return $Default
+    }
+    $prop = $Config.PSObject.Properties[$Name]
+    if ($null -ne $prop) { return $prop.Value }
+    return $Default
+}
+
+function Get-ProbeInitialValue {
+    param([string]$Node)
+    if ([string]::IsNullOrWhiteSpace($Node)) { return $false }
+    return ""
+}
+
+function ConvertTo-BinaryFlag {
+    param(
+        [object]$Value,
+        [string]$Default = "0",
+        [switch]$Strict
+    )
+
+    if ($Default -ne "1") { $Default = "0" }
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
+        return $Default
+    }
+
+    $text = ([string]$Value).Trim()
+    if ($text -eq "0" -or $text -eq "1") {
+        return $text
+    }
+    if ($Strict) {
+        throw "AutoUpdate 参数非法，仅支持 0 或 1"
+    }
+    return $Default
+}
+
+function Normalize-NetworkInterfaceList {
+    param(
+        [string]$Value,
+        [switch]$Strict
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "" }
+    $raw = $Value.Trim()
+    $invalid = $false
+    if ($raw.Length -gt 255 -or $raw -match '[/@?#\\\[\]]') {
+        $invalid = $true
+    }
+
+    $seen = @{}
+    $items = New-Object System.Collections.Generic.List[string]
+    if (-not $invalid) {
+        foreach ($part in ($raw -split ',')) {
+            $name = $part.Trim()
+            if ([string]::IsNullOrWhiteSpace($name)) { continue }
+            if ($name.Length -gt 64 -or $name -notmatch '^[A-Za-z0-9_.:-]+$') {
+                $invalid = $true
+                break
+            }
+            $key = $name.ToLowerInvariant()
+            if (-not $seen.ContainsKey($key)) {
+                $seen[$key] = $true
+                [void]$items.Add($name)
+            }
+        }
+    }
+
+    if ($invalid) {
+        if ($Strict) { throw "Interface 参数非法，请使用英文逗号分隔的网卡名" }
+        return ""
+    }
+
+    $normalized = [string]::Join(',', [string[]]$items)
+    if ($normalized.Length -gt 255) {
+        if ($Strict) { throw "Interface 参数非法，请使用英文逗号分隔的网卡名" }
+        return ""
+    }
+    return $normalized
+}
+
+function ConvertTo-PowerShellLiteral {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Get-AgentInstallUrl {
+    param([string]$WorkerUrl)
+
+    try {
+        $uri = [Uri]$WorkerUrl
+        if ($uri.Scheme -notin @("http", "https") -or [string]::IsNullOrWhiteSpace($uri.Authority)) {
+            return $null
+        }
+        return "$($uri.Scheme)://$($uri.Authority)/cf-server-monitor.ps1"
+    } catch {
+        return $null
+    }
+}
+
+function Get-AgentUpdateTempDir {
+    $candidates = @(
+        [System.IO.Path]::GetTempPath(),
+        $env:TEMP,
+        $env:TMP,
+        $CONFIG_DIR
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+
+    foreach ($candidate in $candidates) {
+        try {
+            if (-not (Test-Path -LiteralPath $candidate)) {
+                New-Item -ItemType Directory -Path $candidate -Force | Out-Null
+            }
+            if (-not (Test-Path -LiteralPath $candidate -PathType Container)) {
+                continue
+            }
+            $probeFile = Join-Path $candidate "cf-probe-write-test-$PID.tmp"
+            [System.IO.File]::WriteAllText($probeFile, "1", [System.Text.Encoding]::ASCII)
+            Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+            return $candidate
+        } catch {}
+    }
+    return $null
+}
+
+function Schedule-AgentUpdate {
+    param(
+        [string]$WorkerUrl,
+        [string]$AutoUpdate
+    )
+
+    if ((ConvertTo-BinaryFlag -Value $AutoUpdate -Default "0") -ne "1") {
+        Write-Log "Auto update ignored: local auto_update=$AutoUpdate" "DEBUG"
+        return
+    }
+
+    $lockFile = Join-Path $CONFIG_DIR "auto_update.lock"
+    $now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+    if (Test-Path -LiteralPath $lockFile) {
+        try {
+            $last = [long]((Get-Content -LiteralPath $lockFile -Raw -ErrorAction Stop).Trim())
+        } catch {
+            $last = 0
+        }
+        if (($now - $last) -lt 1800) {
+            Write-Log "Auto update already scheduled recently: age=$($now - $last)s lock=$lockFile" "DEBUG"
+            return
+        }
+    }
+
+    $installUrl = Get-AgentInstallUrl -WorkerUrl $WorkerUrl
+    if (-not $installUrl) {
+        Write-Log "Auto update skipped: invalid worker_url=$WorkerUrl" "WARN"
+        return
+    }
+
+    $updateTmpDir = Get-AgentUpdateTempDir
+    if (-not $updateTmpDir) {
+        Write-Log "Auto update skipped: no writable temp dir" "WARN"
+        return
+    }
+
+    $id = [Guid]::NewGuid().ToString("N")
+    $downloadScript = Join-Path $updateTmpDir "cf-probe-auto-update-$id.ps1"
+    $runnerScript = Join-Path $updateTmpDir "cf-probe-auto-update-runner-$id.ps1"
+    $installUrlLiteral = ConvertTo-PowerShellLiteral $installUrl
+    $downloadScriptLiteral = ConvertTo-PowerShellLiteral $downloadScript
+    $targetScriptLiteral = ConvertTo-PowerShellLiteral $SCRIPT_PATH
+
+    $runnerContent = @"
+`$ErrorActionPreference = 'Stop'
+try {
+    Invoke-WebRequest -UseBasicParsing -Uri $installUrlLiteral -OutFile $downloadScriptLiteral -TimeoutSec 30
+    Copy-Item -LiteralPath $downloadScriptLiteral -Destination $targetScriptLiteral -Force
+    Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$targetScriptLiteral,'install') -WindowStyle Hidden -Wait
+} catch {
+} finally {
+    Remove-Item -LiteralPath $downloadScriptLiteral -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath `$PSCommandPath -Force -ErrorAction SilentlyContinue
+}
+"@
+
+    try {
+        [System.IO.File]::WriteAllText($runnerScript, $runnerContent, (New-Object System.Text.UTF8Encoding($false)))
+        Start-Process powershell.exe -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", $runnerScript) -WindowStyle Hidden
+        [System.IO.File]::WriteAllText($lockFile, [string]$now, [System.Text.Encoding]::ASCII)
+        Write-Log "Auto update scheduled: url=$installUrl temp=$updateTmpDir" "INFO"
+    } catch {
+        Write-Log "Auto update schedule failed: $($_.Exception.Message)" "WARN"
+    }
+}
+
+function ConvertFrom-AgentConfigResponse {
+    param([string]$Body, [string]$ConfigMd5)
+
+    $bodyText = if ($null -eq $Body) { "" } else { $Body.Trim() }
+    if ([string]::IsNullOrEmpty($bodyText) -or [Text.Encoding]::UTF8.GetByteCount($bodyText) -gt 1024) {
+        throw "动态配置响应长度无效"
+    }
+    if ($bodyText -notmatch '^[A-Za-z0-9_=&.,:\-]+$') { throw "动态配置包含非法字符" }
+
+    $allowedKeys = @(
+        'collect_interval', 'report_interval', 'reset_day', 'schema_version',
+        'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd',
+        'interface', 'rx_correction', 'tx_correction', 'update'
+    )
+    $values = @{}
+    foreach ($part in $bodyText.Split('&')) {
+        if ([string]::IsNullOrEmpty($part)) { continue }
+        $eqIndex = $part.IndexOf('=')
+        if ($eqIndex -lt 0) { throw "动态配置字段格式无效" }
+        $key = $part.Substring(0, $eqIndex)
+        $value = $part.Substring($eqIndex + 1)
+        if ($allowedKeys -notcontains $key) { throw "动态配置包含未知字段: $key" }
+        if ($values.ContainsKey($key)) { throw "动态配置包含重复字段: $key" }
+        $values[$key] = $value
+    }
+
+    $updateValue = if ($values.ContainsKey('update')) { $values['update'] } else { "" }
+    if ($updateValue -ne "" -and $updateValue -ne "0" -and $updateValue -ne "1") {
+        throw "动态配置 update 无效"
+    }
+
+    $requiredKeys = @('collect_interval', 'report_interval', 'reset_day', 'schema_version', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'interface')
+    $hasConfig = $false
+    foreach ($key in $requiredKeys) {
+        if ($values.ContainsKey($key)) {
+            $hasConfig = $true
+            break
+        }
+    }
+
+    if (-not $hasConfig) {
+        if ($updateValue -eq "1") {
+            return @{
+                has_config = $false
+                update = "1"
+            }
+        }
+        throw "动态配置缺少配置字段"
+    }
+
+    foreach ($key in $requiredKeys) {
+        if (-not $values.ContainsKey($key)) { throw "动态配置缺少必要字段: $key" }
+    }
+
+    $ConfigMd5 = if ($null -eq $ConfigMd5) { "" } else { $ConfigMd5.Trim().ToLowerInvariant() }
+    if ($ConfigMd5 -notmatch '^[a-f0-9]{32}$') { throw "动态配置 MD5 无效" }
+
+    foreach ($key in @('collect_interval', 'report_interval', 'reset_day', 'schema_version')) {
+        if ($values[$key] -notmatch '^(0|[1-9][0-9]*)$') { throw "动态配置数值无效" }
+    }
+    $collect = [int]$values['collect_interval']
+    $report = [int]$values['report_interval']
+    $reset = [int]$values['reset_day']
+    $schema = [int]$values['schema_version']
+    if (@(0, 1, 2, 5, 10) -notcontains $collect) { throw "collect_interval 无效" }
+    if (@(30, 60, 120, 180) -notcontains $report -or $report -lt $collect) { throw "report_interval 无效" }
+    if ($reset -lt 0 -or $reset -gt 31 -or $schema -ne 3) { throw "reset_day 或 schema_version 无效" }
+    $networkInterface = Normalize-NetworkInterfaceList -Value $values['interface'] -Strict
+
+    $result = @{
+        has_config = $true
+        collect_interval = $collect
+        report_interval = $report
+        reset_day = $reset
+        config_md5 = $ConfigMd5
+        ct_node = $values['custom_ct']
+        cu_node = $values['custom_cu']
+        cm_node = $values['custom_cm']
+        bd_node = $values['custom_bd']
+        interface = $networkInterface
+    }
+
+    if ($values.ContainsKey('rx_correction') -and $values['rx_correction'] -ne '') {
+        $result.rx_correction = $values['rx_correction']
+    }
+    if ($values.ContainsKey('tx_correction') -and $values['tx_correction'] -ne '') {
+        $result.tx_correction = $values['tx_correction']
+    }
+    if ($updateValue -ne '') {
+        $result.update = $updateValue
+    }
+
+    return $result
+}
+
+function Test-Admin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Invoke-AsAdmin {
+    if ($MyInvocation.MyCommand.Path) {
+        $scriptPath = $MyInvocation.MyCommand.Path
+    } elseif ($PSCommandPath) {
+        $scriptPath = $PSCommandPath
+    } else {
+        $scriptPath = Join-Path (Get-Location).Path "cf-server-monitor.ps1"
+    }
+    $argList = "-NoProfile -ExecutionPolicy Bypass -STA -File `"$scriptPath`" $Action -STA"
+    if ($Id) { $argList += " -Id `"$Id`"" }
+    if ($Secret) { $argList += " -Secret `"$Secret`"" }
+    if ($Url) { $argList += " -Url `"$Url`"" }
+    if ($CollectInterval -and $CollectInterval -ne "0") { $argList += " -CollectInterval `"$CollectInterval`"" }
+    if ($ReportInterval -and $ReportInterval -ne "60") { $argList += " -ReportInterval `"$ReportInterval`"" }
+    if ($ResetDay -and $ResetDay -ne "1") { $argList += " -ResetDay `"$ResetDay`"" }
+    if ($AutoUpdate -ne "") { $argList += " -AutoUpdate `"$AutoUpdate`"" }
+    if ($RxCorrection) { $argList += " -RxCorrection `"$RxCorrection`"" }
+    if ($TxCorrection) { $argList += " -TxCorrection `"$TxCorrection`"" }
+    if ($CtNode) { $argList += " -CtNode `"$CtNode`"" }
+    if ($CuNode) { $argList += " -CuNode `"$CuNode`"" }
+    if ($CmNode) { $argList += " -CmNode `"$CmNode`"" }
+    if ($BdNode) { $argList += " -BdNode `"$BdNode`"" }
+    if ($Interface) { $argList += " -Interface `"$Interface`"" }
+    Start-Process powershell.exe -Verb RunAs -ArgumentList $argList -Wait
+}
+
+# ============================================================
+# 指标采集
+# ============================================================
+
+function Get-CpuUsage {
+    try {
+        $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+        return [math]::Round($cpu.LoadPercentage, 2)
+    } catch {
+        try {
+            $counter = New-Object System.Diagnostics.PerformanceCounter("Processor", "% Processor Time", "_Total")
+            $null = $counter.NextValue()
+            Start-Sleep -Milliseconds 200
+            return [math]::Round($counter.NextValue(), 2)
+        } catch {
+            return 0
+        }
+    }
+}
+
+function Get-CpuInfo {
+    try {
+        $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+        return $cpu.Name.Trim()
+    } catch {
+        return "Unknown CPU"
+    }
+}
+
+function Get-CpuCores {
+    try {
+        $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+        return $cpu.NumberOfLogicalProcessors
+    } catch {
+        return [Environment]::ProcessorCount
+    }
+}
+
+function Get-MemoryInfo {
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem
+        $totalMB = [math]::Round($os.TotalVisibleMemorySize / 1024)
+        $freeMB = [math]::Round($os.FreePhysicalMemory / 1024)
+        $usedMB = $totalMB - $freeMB
+        return @{ total = $totalMB; used = $usedMB }
+    } catch {
+        return @{ total = 0; used = 0 }
+    }
+}
+
+function Get-SwapInfo {
+    try {
+        $pageFiles = Get-CimInstance Win32_PageFile -ErrorAction SilentlyContinue
+        if ($pageFiles) {
+            $totalMB = 0
+            foreach ($pf in $pageFiles) {
+                if ($pf.MaxSize) {
+                    $totalMB += [math]::Round($pf.MaxSize / 1024)
+                } elseif ($pf.Size) {
+                    $totalMB += [math]::Round($pf.Size / 1024)
+                }
+            }
+            $usage = Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue
+            $usedMB = 0
+            if ($usage) {
+                foreach ($u in $usage) {
+                    $usedMB += [math]::Round($u.CurrentUsage / 1024)
+                }
+            }
+            if ($totalMB -gt 0) {
+                return @{ total = $totalMB; used = [math]::Min($usedMB, $totalMB) }
+            }
+        }
+        return @{ total = 0; used = 0 }
+    } catch {
+        return @{ total = 0; used = 0 }
+    }
+}
+
+function Get-DiskInfo {
+    try {
+        $disks = @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue)
+        if (-not $disks -or $disks.Count -eq 0) {
+            $disks = @(Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | Where-Object {
+                $_.Root -match '^[A-Za-z]:\\$' -and $null -ne $_.Used -and $null -ne $_.Free
+            } | ForEach-Object {
+                [PSCustomObject]@{
+                    Size = ([int64]$_.Used + [int64]$_.Free)
+                    FreeSpace = [int64]$_.Free
+                }
+            })
+        }
+
+        $totalBytes = [int64]0
+        $freeBytes = [int64]0
+        foreach ($disk in $disks) {
+            if ($null -eq $disk.Size -or $null -eq $disk.FreeSpace) { continue }
+            $size = [int64]$disk.Size
+            $free = [int64]$disk.FreeSpace
+            if ($size -le 0 -or $free -lt 0) { continue }
+            $totalBytes += $size
+            $freeBytes += $free
+        }
+
+        if ($totalBytes -le 0) { return @{ total = 0; used = 0 } }
+        $totalMB = [math]::Round($totalBytes / 1024 / 1024)
+        $freeMB = [math]::Round($freeBytes / 1024 / 1024)
+        $usedMB = [math]::Max($totalMB - $freeMB, 0)
+        return @{ total = $totalMB; used = $usedMB }
+    } catch {
+        return @{ total = 0; used = 0 }
+    }
+}
+
+function Get-NetworkStats {
+    param([string]$Interface = "")
+    try {
+        $normalizedInterface = Normalize-NetworkInterfaceList -Value $Interface
+        $wanted = @{}
+        if (-not [string]::IsNullOrWhiteSpace($normalizedInterface)) {
+            foreach ($name in ($normalizedInterface -split ',')) {
+                if (-not [string]::IsNullOrWhiteSpace($name)) {
+                    $wanted[$name.ToLowerInvariant()] = $true
+                }
+            }
+        }
+        $adapters = Get-NetAdapterStatistics -ErrorAction SilentlyContinue
+        if ($adapters) {
+            $totalRx = 0
+            $totalTx = 0
+            foreach ($adapter in $adapters) {
+                try {
+                    if ($wanted.Count -gt 0) {
+                        $adapterName = ([string]$adapter.Name).Trim().ToLowerInvariant()
+                        if (-not $wanted.ContainsKey($adapterName)) { continue }
+                    }
+                    $totalRx += [long]$adapter.ReceivedBytes
+                    $totalTx += [long]$adapter.SentBytes
+                } catch {}
+            }
+            return @{ rx = $totalRx; tx = $totalTx }
+        }
+    } catch {}
+    Write-Log "网络流量获取失败" "DEBUG"
+    return @{ rx = 0; tx = 0 }
+}
+
+function Get-TcpUdpConnections {
+    $tcp = 0; $udp = 0
+    try {
+        $conns = Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue
+        $tcp = ($conns | Measure-Object).Count
+    } catch {}
+    try {
+        $conns = Get-NetUDPEndpoint -ErrorAction SilentlyContinue
+        $udp = ($conns | Measure-Object).Count
+    } catch {}
+    return @{ tcp = $tcp; udp = $udp }
+}
+
+function Get-ProcessCount {
+    try {
+        return (Get-Process | Measure-Object).Count
+    } catch {
+        return 0
+    }
+}
+
+function Get-BootTime {
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem
+        $boot = $os.LastBootUpTime
+        return [long]([DateTimeOffset]::new($boot).ToUnixTimeMilliseconds())
+    } catch {
+        return 0
+    }
+}
+
+function ConvertTo-GpuUsage {
+    param(
+        [object]$Value,
+        [object]$DefaultValue = $null
+    )
+    if ($null -eq $Value) { return $DefaultValue }
+    $text = ([string]$Value).Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) { return $DefaultValue }
+    $parsed = 0.0
+    if ([double]::TryParse($text, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$parsed)) {
+        return $parsed
+    }
+    return $DefaultValue
+}
+
+function Get-GpuInfo {
+    $gpuList = @()
+    try {
+        $nvidia = & nvidia-smi --query-gpu=index,name,utilization.gpu --format=csv,noheader,nounits 2>$null
+        if ($nvidia) {
+            foreach ($line in @($nvidia)) {
+                if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                $parts = ([string]$line) -split ','
+                if ($parts.Count -lt 3) { continue }
+                $gpuId = $parts[0].Trim()
+                $gpuUsage = ConvertTo-GpuUsage -Value $parts[$parts.Count - 1]
+                if ($parts.Count -gt 3) {
+                    $gpuName = ($parts[1..($parts.Count - 2)] -join ',').Trim()
+                } else {
+                    $gpuName = $parts[1].Trim()
+                }
+                if (-not [string]::IsNullOrWhiteSpace($gpuName)) {
+                    $gpuList += [pscustomobject]@{
+                        name = $gpuName
+                        info = $gpuUsage
+                        id = $gpuId
+                    }
+                }
+            }
+        }
+    } catch {}
+
+    if ($gpuList.Count -eq 0) {
+        try {
+            $idx = 0
+            $controllers = Get-CimInstance Win32_VideoController
+            foreach ($controller in @($controllers)) {
+                $gpuName = [string]$controller.Name
+                if ([string]::IsNullOrWhiteSpace($gpuName)) { continue }
+                $gpuList += [pscustomobject]@{
+                    name = $gpuName.Trim()
+                    info = 0
+                    id = $idx.ToString()
+                }
+                $idx++
+            }
+        } catch {}
+    }
+
+    if ($gpuList.Count -gt 0) { return $gpuList }
+    return $null
+}
+
+function Get-LoadAvg {
+    param([double]$CpuPercent)
+    $v1 = [math]::Min([math]::Max($CpuPercent / 100.0, 0.0), 999.0)
+    $v2 = [math]::Max($v1 * 0.8, 0.0)
+    $v3 = [math]::Max($v1 * 0.6, 0.0)
+    return "{0:N2} {1:N2} {2:N2}" -f $v1, $v2, $v3
+}
+
+# ============================================================
+# 网络探测
+# ============================================================
+
+function Resolve-ProbeTarget {
+    param([string]$TargetHost, [int]$DefaultPort = 443)
+    $target = if ($TargetHost) { $TargetHost.Trim() } else { "" }
+    if (-not $target) { return @{ host = ""; port = $DefaultPort } }
+    if ($target.Contains(':')) {
+        if ($target -notmatch '^([^:]+):([0-9]{1,5})$') { return $null }
+        $port = [int]$Matches[2]
+        if ($port -ge 1 -and $port -le 65535) {
+            return @{ host = $Matches[1]; port = $port }
+        }
+        return $null
+    }
+    return @{ host = $target; port = $DefaultPort }
+}
+
+function Get-TcpPing {
+    param([string]$TargetHost, [int]$Port = 443) 
+    if (-not $TargetHost) { return "" }
+    try {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $task = $tcp.ConnectAsync($TargetHost, $Port)
+        if ($task.Wait(5000)) {
+            $sw.Stop()
+            $tcp.Close()
+            $ms = [int]$sw.ElapsedMilliseconds
+            if ($ms -gt 0) { return $ms.ToString() } else { return "1" }
+        } else {
+            $tcp.Close()
+            return ""
+        }
+    } catch {
+        return ""
+    }
+}
+
+
+function Get-Probe {
+    param([string]$TargetHost, [int]$Count = 4)
+    if ([string]::IsNullOrWhiteSpace($TargetHost)) { return @{ rtt = $false; loss = $false } }
+    $target = Resolve-ProbeTarget -TargetHost $TargetHost -DefaultPort 443
+    if (-not $target) { return @{ rtt = "null"; loss = "100" } }
+    $TargetHost = $target.host
+    $port = [int]$target.port
+    if (-not $TargetHost) { return @{ rtt = "null"; loss = "100" } }
+    $ok = 0; $totalRtt = 0
+    for ($i = 0; $i -lt $Count; $i++) {
+        $r = Get-TcpPing -TargetHost $TargetHost -Port $port
+        if ($r -match '^\d+$') { $ok++; $totalRtt += [int]$r }
+    }
+    $rtt = if ($ok -gt 0) { [math]::Floor($totalRtt / $ok).ToString() } else { "null" }
+    $loss = [math]::Floor(($Count - $ok) / $Count * 100).ToString()
+    return @{ rtt = $rtt; loss = $loss }
+}
+
+# ============================================================
+# 异步 Ping 检测（后台执行，结果写入临时文件）
+# ============================================================
+
+function Start-PingBackgroundJob {
+    param(
+        [string]$CtNode,
+        [string]$CuNode,
+        [string]$CmNode,
+        [string]$BdNode,
+        [string]$TempFile
+    )
+
+    $jobScript = {
+        param($ct, $cu, $cm, $bd, $tempFile)
+
+        function Resolve-ProbeTarget {
+            param([string]$TargetHost, [int]$DefaultPort = 443)
+            $target = if ($TargetHost) { $TargetHost.Trim() } else { "" }
+            if (-not $target) { return @{ host = ""; port = $DefaultPort } }
+            if ($target.Contains(':')) {
+                if ($target -notmatch '^([^:]+):([0-9]{1,5})$') { return $null }
+                $port = [int]$Matches[2]
+                if ($port -ge 1 -and $port -le 65535) {
+                    return @{ host = $Matches[1]; port = $port }
+                }
+                return $null
+            }
+            return @{ host = $target; port = $DefaultPort }
+        }
+
+        function Get-TcpPing {
+            param([string]$TargetHost, [int]$Port = 443)
+            if (-not $TargetHost) { return "" }
+            try {
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                $tcp = New-Object System.Net.Sockets.TcpClient
+                $task = $tcp.ConnectAsync($TargetHost, $Port)
+                if ($task.Wait(5000)) {
+                    $sw.Stop()
+                    $tcp.Close()
+                    $ms = [int]$sw.ElapsedMilliseconds
+                    if ($ms -gt 0) { return $ms.ToString() } else { return "1" }
+                } else {
+                    $tcp.Close()
+                    return ""
+                }
+            } catch { return "" }
+        }
+
+        function Get-Probe {
+            param([string]$TargetHost, [int]$Count = 4)
+            if ([string]::IsNullOrWhiteSpace($TargetHost)) { return @{ rtt = $false; loss = $false } }
+            $target = Resolve-ProbeTarget -TargetHost $TargetHost -DefaultPort 443
+            if (-not $target) { return @{ rtt = "null"; loss = "100" } }
+            $TargetHost = $target.host
+            $port = [int]$target.port
+            if (-not $TargetHost) { return @{ rtt = $false; loss = $false } }
+            $ok = 0; $totalRtt = 0
+            for ($i = 0; $i -lt $Count; $i++) {
+                $r = Get-TcpPing -TargetHost $TargetHost -Port $port
+                if ($r -match '^\d+$') { $ok++; $totalRtt += [int]$r }
+            }
+            $rtt = if ($ok -gt 0) { [math]::Floor($totalRtt / $ok).ToString() } else { "null" }
+            $loss = [math]::Floor(($Count - $ok) / $Count * 100).ToString()
+            return @{ rtt = $rtt; loss = $loss }
+        }
+
+        $ctProbe = Get-Probe -TargetHost $ct
+        $cuProbe = Get-Probe -TargetHost $cu
+        $cmProbe = Get-Probe -TargetHost $cm
+        $bdProbe = Get-Probe -TargetHost $bd
+
+        $result = @{
+            ct_ping = $ctProbe.rtt; ct_loss = $ctProbe.loss
+            cu_ping = $cuProbe.rtt; cu_loss = $cuProbe.loss
+            cm_ping = $cmProbe.rtt; cm_loss = $cmProbe.loss
+            bd_ping = $bdProbe.rtt; bd_loss = $bdProbe.loss
+            timestamp = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+        }
+
+        $json = $result | ConvertTo-Json -Compress
+        [System.IO.File]::WriteAllText($tempFile, $json, [System.Text.Encoding]::UTF8)
+    }
+
+    Start-Job -ScriptBlock $jobScript -ArgumentList $CtNode, $CuNode, $CmNode, $BdNode, $TempFile -Name "CFProbePingJob" | Out-Null
+}
+
+function Read-PingResults {
+    param([string]$TempFile)
+    if (Test-Path $TempFile) {
+        try {
+            $json = [System.IO.File]::ReadAllText($TempFile, [System.Text.Encoding]::UTF8)
+            $result = $json | ConvertFrom-Json
+            return $result
+        } catch {}
+    }
+    return $null
+}
+
+function Remove-PingBackgroundJob {
+    $job = Get-Job -Name "CFProbePingJob" -ErrorAction SilentlyContinue
+    if ($job) {
+        Remove-Job -Name "CFProbePingJob" -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# ============================================================
+# IP 检测
+# ============================================================
+
+function Get-PublicIPv4 {
+    try {
+        $ip = (Invoke-RestMethod -Uri "https://ipv4.icanhazip.com" -TimeoutSec 3 -ErrorAction Stop).Trim()
+        if ($ip -match '\.') { return $ip }
+    } catch {}
+    try {
+        $ip = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 3 -ErrorAction Stop).Trim()
+        if ($ip -match '\.') { return $ip }
+    } catch {}
+    return "0"
+}
+
+function Get-PublicIPv6 {
+    try {
+        $ip = (Invoke-RestMethod -Uri "https://ipv6.icanhazip.com" -TimeoutSec 3 -ErrorAction Stop).Trim()
+        if ($ip -match ':') { return $ip }
+    } catch {}
+    try {
+        $ip = (Invoke-RestMethod -Uri "https://api64.ipify.org" -TimeoutSec 3 -ErrorAction Stop).Trim()
+        if ($ip -match ':') { return $ip }
+    } catch {}
+    return "0"
+}
+
+# ============================================================
+# 流量统计
+# ============================================================
+
+function Get-TrafficData {
+    if (Test-Path $TRAFFIC_FILE) {
+        $raw = Get-Content $TRAFFIC_FILE -Raw -Encoding UTF8
+        $data = @{}
+        $raw -split "`n" | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -match '^(\w+)=(.+)$') {
+                $data[$Matches[1]] = $Matches[2]
+            }
+        }
+        return $data
+    }
+    return @{}
+}
+
+function Save-TrafficData {
+    param($Data)
+    if (-not (Test-Path $CONFIG_DIR)) { New-Item -ItemType Directory -Path $CONFIG_DIR -Force | Out-Null }
+    $lines = @()
+    foreach ($key in $Data.Keys) {
+        $lines += "$key=$($Data[$key])"
+    }
+    $tmpFile = "$TRAFFIC_FILE.tmp"
+    $lines -join "`n" | Set-Content $tmpFile -Encoding UTF8
+    Move-Item -LiteralPath $tmpFile -Destination $TRAFFIC_FILE -Force -ErrorAction SilentlyContinue
+}
+
+function Apply-TrafficCorrection {
+    param([string]$RxCorrection, [string]$TxCorrection, [string]$Interface = "")
+    if ([string]::IsNullOrEmpty($RxCorrection)) { $RxCorrection = "0" }
+    if ([string]::IsNullOrEmpty($TxCorrection)) { $TxCorrection = "0" }
+    if (-not (Test-CorrectionValue $RxCorrection) -or -not (Test-CorrectionValue $TxCorrection)) { return $false }
+
+    $rxBytes = 0; $txBytes = 0
+    $rxBytes = [long]([double]$RxCorrection * 1GB)
+    $txBytes = [long]([double]$TxCorrection * 1GB)
+
+    $saved = @{
+        RX_PREV = "0"; TX_PREV = "0"
+        RX_PERIOD = "0"; TX_PERIOD = "0"
+        LAST_CHECK = "0"; PERIOD_START = "0"
+    }
+    if (Test-Path $TRAFFIC_FILE) {
+        Get-Content $TRAFFIC_FILE | ForEach-Object {
+            $parts = $_.Split('=', 2)
+            if ($parts.Count -eq 2) { $saved[$parts[0].Trim()] = $parts[1].Trim() }
+        }
+    }
+
+    $normalizedInterface = Normalize-NetworkInterfaceList -Value $Interface
+    $currentNet = Get-NetworkStats -Interface $normalizedInterface
+    $saved.RX_PREV = ([long]$currentNet.rx).ToString()
+    $saved.TX_PREV = ([long]$currentNet.tx).ToString()
+    $saved.INTERFACE = $normalizedInterface
+    $saved.RX_PERIOD = $rxBytes.ToString()
+    $saved.TX_PERIOD = $txBytes.ToString()
+    Write-Log "流量校正已应用: RX=${RxCorrection}GB (${rxBytes} bytes) TX=${TxCorrection}GB (${txBytes} bytes)" "INFO"
+
+    $nowTs = [long]([DateTimeOffset]::Now.ToUnixTimeSeconds())
+    $saved.LAST_CHECK = $nowTs.ToString()
+    Save-TrafficData -Data $saved
+    return $true
+}
+
+function Normalize-CorrectionValue {
+    param([string]$Value)
+    if ([string]::IsNullOrEmpty($Value)) { return "0" }
+    return $Value
+}
+
+function Test-CorrectionValue {
+    param([string]$Value)
+    $normalized = Normalize-CorrectionValue $Value
+    if ($normalized -notmatch '^[0-9]+(\.[0-9]+)?$') { return $false }
+    $number = [double]$normalized
+    return $number -ge 0 -and $number -le $MAX_TRAFFIC_CORRECTION_GB
+}
+
+function Send-CorrectionConfirm {
+    param([string]$ServerId, [string]$Secret, [string]$WorkerUrl, [string]$RxCorrection, [string]$TxCorrection)
+    $rxValue = Normalize-CorrectionValue $RxCorrection
+    $txValue = Normalize-CorrectionValue $TxCorrection
+    if (-not (Test-CorrectionValue $rxValue) -or -not (Test-CorrectionValue $txValue)) { return $false }
+    $payload = @{
+        id = $ServerId
+        secret = $Secret
+        rx_correction = [double]$rxValue
+        tx_correction = [double]$txValue
+    } | ConvertTo-Json -Compress
+
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $WorkerUrl -Method Post -Body $payload `
+            -ContentType "application/json; charset=utf-8" -TimeoutSec 4 -ErrorAction Stop
+        if ([int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 300) {
+            Write-Log "流量校正确认已发送: RX=${rxValue}GB TX=${txValue}GB" "INFO"
+            return $true
+        }
+    } catch {
+        Write-Log "流量校正确认发送失败: $_" "DEBUG"
+    }
+    return $false
+}
+
+function Invoke-TrafficCorrection {
+    param([string]$ServerId, [string]$Secret, [string]$WorkerUrl, [string]$RxCorrection, [string]$TxCorrection, [string]$Interface = "")
+    $rxValue = Normalize-CorrectionValue $RxCorrection
+    $txValue = Normalize-CorrectionValue $TxCorrection
+
+    if (Apply-TrafficCorrection -RxCorrection $rxValue -TxCorrection $txValue -Interface $Interface) {
+        [void](Send-CorrectionConfirm -ServerId $ServerId -Secret $Secret -WorkerUrl $WorkerUrl -RxCorrection $rxValue -TxCorrection $txValue)
+    }
+}
+
+function Get-PeriodStartTimestamp {
+    param([int]$ResetDay, [long]$NowTs)
+    if ($ResetDay -eq 0) { return 0 }
+    $dt = [DateTimeOffset]::FromUnixTimeSeconds($NowTs).UtcDateTime
+    $year = $dt.Year; $month = $dt.Month; $day = $dt.Day
+    $targetDay = $ResetDay
+    $daysInMonth = [DateTime]::DaysInMonth($year, $month)
+    if ($targetDay -gt $daysInMonth) { $targetDay = $daysInMonth }
+    if ($day -ge $targetDay) {
+        $start = [DateTime]::SpecifyKind([DateTime]::new($year, $month, $targetDay), [DateTimeKind]::Utc)
+    } else {
+        $prevMonth = $month - 1
+        if ($prevMonth -eq 0) { $prevMonth = 12; $year-- }
+        $daysInPrev = [DateTime]::DaysInMonth($year, $prevMonth)
+        $td = [math]::Min($ResetDay, $daysInPrev)
+        $start = [DateTime]::SpecifyKind([DateTime]::new($year, $prevMonth, $td), [DateTimeKind]::Utc)
+    }
+    return [long]([DateTimeOffset]::new($start).ToUnixTimeSeconds())
+}
+
+function Convert-ToLongOrDefault {
+    param($Value, [long]$Default = 0)
+    if ($null -eq $Value -or $Value -eq "") { return $Default }
+    try { return [long]$Value } catch { return $Default }
+}
+
+function Update-MonthlyTraffic {
+    param([long]$CurrentRx, [long]$CurrentTx, [int]$ResetDay, [string]$Interface = "")
+    $nowTs = [long]([DateTimeOffset]::Now.ToUnixTimeSeconds())
+    $normalizedInterface = Normalize-NetworkInterfaceList -Value $Interface
+    $saved = Get-TrafficData
+    $savedRxPrev = Convert-ToLongOrDefault $saved["RX_PREV"]
+    $savedTxPrev = Convert-ToLongOrDefault $saved["TX_PREV"]
+    $savedRxPeriod = Convert-ToLongOrDefault $saved["RX_PERIOD"]
+    $savedTxPeriod = Convert-ToLongOrDefault $saved["TX_PERIOD"]
+    $savedLastCheck = Convert-ToLongOrDefault $saved["LAST_CHECK"]
+    $savedPeriodStart = Convert-ToLongOrDefault $saved["PERIOD_START"]
+    $savedInterface = if ($saved.ContainsKey("INTERFACE")) { [string]$saved["INTERFACE"] } else { "" }
+    if ($savedInterface -ne $normalizedInterface) {
+        $savedRxPrev = 0
+        $savedTxPrev = 0
+        $savedRxPeriod = 0
+        $savedTxPeriod = 0
+        $savedLastCheck = 0
+        $savedPeriodStart = 0
+    }
+
+    $periodStart = Get-PeriodStartTimestamp -ResetDay $ResetDay -NowTs $nowTs
+    $rxDelta = 0; $txDelta = 0
+
+    if ($savedLastCheck -ne 0) {
+        if ($CurrentRx -lt $savedRxPrev -or $CurrentTx -lt $savedTxPrev) {
+            $rxDelta = 0; $txDelta = 0
+        } else {
+            $rxDelta = $CurrentRx - $savedRxPrev
+            $txDelta = $CurrentTx - $savedTxPrev
+        }
+        if ($periodStart -ne 0 -and $periodStart -ne $savedPeriodStart -and $savedPeriodStart -ne 0) {
+            $savedRxPeriod = $rxDelta
+            $savedTxPeriod = $txDelta
+        } else {
+            $savedRxPeriod += $rxDelta
+            $savedTxPeriod += $txDelta
+        }
+    }
+
+    $newData = @{
+        RX_PREV = $CurrentRx.ToString()
+        TX_PREV = $CurrentTx.ToString()
+        RX_PERIOD = $savedRxPeriod.ToString()
+        TX_PERIOD = $savedTxPeriod.ToString()
+        LAST_CHECK = $nowTs.ToString()
+        PERIOD_START = $periodStart.ToString()
+        INTERFACE = $normalizedInterface
+    }
+    Save-TrafficData -Data $newData
+    return @{ rx = $savedRxPeriod; tx = $savedTxPeriod }
+}
+
+# ============================================================
+# 主采集循环
+# ============================================================
+
+function Invoke-TrayCollectLoop {
+    [void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+    [void][System.Reflection.Assembly]::LoadWithPartialName("System.Drawing")
+    
+    $trayIcon = New-Object System.Windows.Forms.NotifyIcon
+    $trayIcon.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon((Get-Command powershell).Source)
+    $trayIcon.Visible = $true
+    $trayIcon.Text = "CF-Server-Monitor"
+    
+    $menu = New-Object System.Windows.Forms.ContextMenuStrip
+    $statusItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $statusItem.Text = "查看状态"
+    $statusItem.Add_Click({
+        $config = Load-Config
+        $effectiveStatusReportInterval = [math]::Max([int]$config.report_interval, 60)
+        $statusAutoUpdate = ConvertTo-BinaryFlag -Value $config.auto_update -Default "0"
+        $msg = "CF-Server-Monitor 状态`n"
+        $msg += "Server ID: $($config.server_id)`n"
+        $msg += "Worker URL: $($config.worker_url)`n"
+        $msg += "上报间隔: $($config.report_interval)秒`n"
+        $msg += "实际上报间隔: $effectiveStatusReportInterval秒`n"
+        $msg += "自动更新: $statusAutoUpdate`n"
+        $msg += "日志文件: $LOG_FILE"
+        [System.Windows.Forms.MessageBox]::Show($msg, "CF-Server-Monitor", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+    })
+    
+    $stopItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $stopItem.Text = "停止探针"
+    $stopItem.Add_Click({
+        Write-Log "用户从托盘菜单停止探针" "INFO"
+        $trayIcon.Visible = $false
+        $trayIcon.Dispose()
+        [System.Windows.Forms.Application]::Exit()
+        exit 0
+    })
+    
+    $exitItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $exitItem.Text = "退出"
+    $exitItem.Add_Click({
+        Write-Log "用户从托盘菜单退出" "INFO"
+        $trayIcon.Visible = $false
+        $trayIcon.Dispose()
+        [System.Windows.Forms.Application]::Exit()
+        exit 0
+    })
+    
+    $menu.Items.Add($statusItem)
+    $menu.Items.Add($stopItem)
+    $menu.Items.Add($exitItem)
+    $trayIcon.ContextMenuStrip = $menu
+    
+    Write-Log "探针已启动（托盘模式）" "INFO"
+    
+    # 使用 Timer + Application.Run 启动消息泵，托盘菜单才能响应
+    Start-TimerCollectLoop -TrayIcon $trayIcon
+}
+
+function Start-TimerCollectLoop {
+    param($TrayIcon = $null)
+
+    # ========================================
+    # 加载配置（与原 Invoke-CollectLoop 相同）
+    # ========================================
+    $config = Load-Config
+    if (-not $config) {
+        Write-Log "配置文件不存在，使用命令行参数..." "WARN"
+        if (-not $Id -or -not $Secret -or -not $Url) {
+            Write-Log "错误: 缺少必要参数" "ERROR"
+            Write-Host "请使用: .\cf-server-monitor.ps1 run -Id 'ID' -Secret '密钥' -Url '地址'" -ForegroundColor Yellow
+            return
+        }
+        try {
+            $newAutoUpdate = if ($AutoUpdate -ne "") {
+                ConvertTo-BinaryFlag -Value $AutoUpdate -Default "0" -Strict
+            } else {
+                "0"
+            }
+            $newInterface = Normalize-NetworkInterfaceList -Value $Interface -Strict
+        } catch {
+            Write-Log "错误: $($_.Exception.Message)" "ERROR"
+            return
+        }
+        $config = @{
+            server_id = $Id
+            secret = $Secret
+            worker_url = $Url
+            collect_interval = [int]$CollectInterval
+            report_interval = [int]$ReportInterval
+            reset_day = [int]$ResetDay
+            auto_update = $newAutoUpdate
+            config_md5 = "none"
+            ct_node = if ($CtNode) { $CtNode } else { "" }
+            cu_node = if ($CuNode) { $CuNode } else { "" }
+            cm_node = if ($CmNode) { $CmNode } else { "" }
+            bd_node = if ($BdNode) { $BdNode } else { "" }
+            interface = $newInterface
+        }
+        Save-Config -Config $config
+        Write-Log "已保存配置到: $CONFIG_FILE" "INFO"
+    }
+
+    $serverId = if ($Id) { $Id } else { $config.server_id }
+    $secret = if ($Secret) { $Secret } else { $config.secret }
+    $workerUrl = if ($Url) { $Url.Trim().Trim("'").Trim('"') } else { $config.worker_url.Trim().Trim("'").Trim('"') }
+
+    if ($config.report_interval) {
+        $reportInterval = [int]$config.report_interval
+    } else {
+        $reportInterval = 60
+    }
+
+    if ($null -ne $config.reset_day) {
+        $resetDay = [int]$config.reset_day
+    } else {
+        $resetDay = 1
+    }
+    $configMd5 = if ($config.config_md5) { $config.config_md5.ToString().Trim().ToLowerInvariant() } else { "none" }
+    $ctNode = if ($CtNode) { $CtNode } else { Get-ConfigProperty $config 'ct_node' "" }
+    $cuNode = if ($CuNode) { $CuNode } else { Get-ConfigProperty $config 'cu_node' "" }
+    $cmNode = if ($CmNode) { $CmNode } else { Get-ConfigProperty $config 'cm_node' "" }
+    $bdNode = if ($BdNode) { $BdNode } else { Get-ConfigProperty $config 'bd_node' "" }
+    try {
+        $networkInterface = if ($Interface) {
+            Normalize-NetworkInterfaceList -Value $Interface -Strict
+        } else {
+            Normalize-NetworkInterfaceList -Value (Get-ConfigProperty $config 'interface' "")
+        }
+    } catch {
+        Write-Log "错误: $($_.Exception.Message)" "ERROR"
+        return
+    }
+    try {
+        $autoUpdate = if ($AutoUpdate -ne "") {
+            ConvertTo-BinaryFlag -Value $AutoUpdate -Default "0" -Strict
+        } else {
+            ConvertTo-BinaryFlag -Value $config.auto_update -Default "0"
+        }
+    } catch {
+        Write-Log "错误: $($_.Exception.Message)" "ERROR"
+        return
+    }
+    $ctNode = $ctNode.Trim()
+    $cuNode = $cuNode.Trim()
+    $cmNode = $cmNode.Trim()
+    $bdNode = $bdNode.Trim()
+    $networkInterface = $networkInterface.Trim()
+
+    if ($workerUrl -notmatch '^https?://') {
+        Write-Log "警告: worker_url 格式可能不正确: '$workerUrl'" "WARN"
+        $workerUrl = $workerUrl.Trim().Trim("'").Trim('"')
+        Write-Log "清理后的 URL: '$workerUrl'" "WARN"
+    }
+    if ($workerUrl -notmatch '^https?://') {
+        Write-Log "错误: worker_url 无效: '$workerUrl'" "ERROR"
+        Write-Log "请检查配置文件: $CONFIG_FILE" "ERROR"
+        return
+    }
+    if (-not $serverId -or -not $secret -or -not $workerUrl) {
+        Write-Log "配置不完整，请填写 server_id, secret, worker_url" "ERROR"
+        return
+    }
+    if (@(30, 60, 120, 180) -notcontains $reportInterval) { $reportInterval = 60 }
+    if ($resetDay -lt 0 -or $resetDay -gt 31) { $resetDay = 1 }
+    $effectiveReportInterval = [math]::Max($reportInterval, 60)
+
+    # ========================================
+    # 持久状态变量（脚本作用域，跨 Timer Tick 保持）
+    # ========================================
+    $script:cs_prevNet = @{ rx = 0; tx = 0; time = 0 }
+    $script:cs_lastIpCheck = 0
+    $script:cs_lastPingCheck = 0
+    $script:cs_ipV4 = "0"
+    $script:cs_ipV6 = "0"
+    $script:cs_pingCt = Get-ProbeInitialValue $ctNode
+    $script:cs_pingCu = Get-ProbeInitialValue $cuNode
+    $script:cs_pingCm = Get-ProbeInitialValue $cmNode
+    $script:cs_pingBd = Get-ProbeInitialValue $bdNode
+    $script:cs_lossCt = Get-ProbeInitialValue $ctNode
+    $script:cs_lossCu = Get-ProbeInitialValue $cuNode
+    $script:cs_lossCm = Get-ProbeInitialValue $cmNode
+    $script:cs_lossBd = Get-ProbeInitialValue $bdNode
+    $script:cs_lastReportTime = 0
+    $script:cs_reportInterval = $effectiveReportInterval
+    $script:cs_resetDay = $resetDay
+    $script:cs_configMd5 = $configMd5
+    $script:cs_ctNode = $ctNode
+    $script:cs_cuNode = $cuNode
+    $script:cs_cmNode = $cmNode
+    $script:cs_bdNode = $bdNode
+    $script:cs_interface = $networkInterface
+    $script:cs_autoUpdate = $autoUpdate
+
+    # ========================================
+    # 缓存机制变量
+    # ========================================
+    # 磁盘检测间隔（秒）- 2分钟
+    $script:cs_diskCheckInterval = 120
+    $script:cs_lastDiskCheck = 0
+    $script:cs_diskTotal = 0
+    $script:cs_diskUsed = 0
+
+    # 状态检测间隔（秒）- 固定60秒
+    $script:cs_statusCheckInterval = 60
+    $script:cs_lastStatusCheck = 0
+
+    # 缓存的状态数据
+    $script:cs_cpuInfo = ""
+    $script:cs_cpuCores = 1
+    $script:cs_bootTime = 0
+    $script:cs_osName = ""
+    $script:cs_arch = ""
+    $script:cs_kernelVersion = ""
+    $script:cs_gpuInfoValue = $null
+    $script:cs_loadAvg = "0.00 0.00 0.00"
+    $script:cs_processCount = 0
+    $script:cs_tcpConn = 0
+    $script:cs_udpConn = 0
+    $script:cs_rxMonthly = 0
+    $script:cs_txMonthly = 0
+
+    $pingTempFile = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "cf_probe_ping_results.json")
+
+    # 首次 CPU 采样
+    try {
+        $counter = New-Object System.Diagnostics.PerformanceCounter("Processor", "% Processor Time", "_Total")
+        $null = $counter.NextValue()
+        Start-Sleep -Milliseconds 300
+    } catch {}
+
+    $interfaceLogValue = if ($networkInterface) { $networkInterface } else { "auto" }
+    Write-Log "探针已启动。 ServerID=$serverId Url='$workerUrl' ReportInterval=${reportInterval}s EffectiveReportInterval=${effectiveReportInterval}s CollectInterval=ignored Interface=$interfaceLogValue AutoUpdate=$autoUpdate"
+
+    # ========================================
+    # Timer 驱动采集：每次 Tick 执行一轮采集+上报
+    # ========================================
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = $effectiveReportInterval * 1000
+    $timer.Add_Tick({
+        try {
+            # 捕获外部参数到局部变量，避免作用域问题
+            $srvId = $serverId
+            $sec = $secret
+            $wUrl = $workerUrl
+            $ctN = [string]$script:cs_ctNode
+            $cuN = [string]$script:cs_cuNode
+            $cmN = [string]$script:cs_cmNode
+            $bdN = [string]$script:cs_bdNode
+            $nicNames = [string]$script:cs_interface
+            $rDay = $script:cs_resetDay
+            $rInterval = $script:cs_reportInterval
+            $pFile = $pingTempFile
+
+            $now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+
+            # IP 检测（每 10 分钟）
+            if ($now - $script:cs_lastIpCheck -ge 600 -or $script:cs_lastIpCheck -eq 0) {
+                $script:cs_ipV4 = Get-PublicIPv4
+                $script:cs_ipV6 = Get-PublicIPv6
+                $script:cs_lastIpCheck = $now
+            }
+
+            # Ping 跟随上报间隔并限制在 30-60 秒（同时计算延迟和丢包率）
+            $probeInterval = [int]$script:cs_reportInterval
+            if ($probeInterval -lt 30) { $probeInterval = 30 }
+            if ($probeInterval -gt 60) { $probeInterval = 60 }
+            if ($now - $script:cs_lastPingCheck -ge $probeInterval -or $script:cs_lastPingCheck -eq 0) {
+                $script:cs_lastPingCheck = $now
+                $existingJob = Get-Job -Name "CFProbePingJob" -ErrorAction SilentlyContinue
+                if (-not $existingJob -or $existingJob.State -in @("Completed", "Failed", "Stopped")) {
+                    Remove-PingBackgroundJob
+                    Start-PingBackgroundJob -CtNode $ctN -CuNode $cuN -CmNode $cmN -BdNode $bdN -TempFile $pFile
+                }
+            }
+
+            # 读取异步 Ping 检测结果
+            $pingResults = Read-PingResults -TempFile $pFile
+            if ($pingResults) {
+                $props = $pingResults.PSObject.Properties
+                if ($props['ct_ping']) { $script:cs_pingCt = $pingResults.ct_ping }
+                if ($props['cu_ping']) { $script:cs_pingCu = $pingResults.cu_ping }
+                if ($props['cm_ping']) { $script:cs_pingCm = $pingResults.cm_ping }
+                if ($props['bd_ping']) { $script:cs_pingBd = $pingResults.bd_ping }
+                if ($props['ct_loss']) { $script:cs_lossCt = $pingResults.ct_loss }
+                if ($props['cu_loss']) { $script:cs_lossCu = $pingResults.cu_loss }
+                if ($props['cm_loss']) { $script:cs_lossCm = $pingResults.cm_loss }
+                if ($props['bd_loss']) { $script:cs_lossBd = $pingResults.bd_loss }
+            }
+
+            if ([string]::IsNullOrWhiteSpace($ctN)) { $script:cs_pingCt = $false; $script:cs_lossCt = $false }
+            if ([string]::IsNullOrWhiteSpace($cuN)) { $script:cs_pingCu = $false; $script:cs_lossCu = $false }
+            if ([string]::IsNullOrWhiteSpace($cmN)) { $script:cs_pingCm = $false; $script:cs_lossCm = $false }
+            if ([string]::IsNullOrWhiteSpace($bdN)) { $script:cs_pingBd = $false; $script:cs_lossBd = $false }
+
+            # 实时采集：CPU、内存、网络（网速计算需要每次执行）
+            $cpuPercent = Get-CpuUsage
+            $mem = Get-MemoryInfo
+            $swap = Get-SwapInfo
+
+            $netStat = Get-NetworkStats -Interface $nicNames
+            $rxNow = [long]$netStat.rx
+            $txNow = [long]$netStat.tx
+
+            $rxPrev = if ($script:cs_prevNet.time -gt 0) { $script:cs_prevNet.rx } else { $rxNow }
+            $txPrev = if ($script:cs_prevNet.time -gt 0) { $script:cs_prevNet.tx } else { $txNow }
+            $deltaTime = if ($script:cs_prevNet.time -gt 0) { [math]::Max($now - $script:cs_prevNet.time, 1) } else { 1 }
+            $rxSpeed = [math]::Max(($rxNow - $rxPrev) / $deltaTime, 0)
+            $txSpeed = [math]::Max(($txNow - $txPrev) / $deltaTime, 0)
+            $script:cs_prevNet = @{ rx = $rxNow; tx = $txNow; time = $now }
+
+            # 磁盘检测缓存（每2分钟检测一次）
+            if ($now - $script:cs_lastDiskCheck -ge $script:cs_diskCheckInterval -or $script:cs_lastDiskCheck -eq 0) {
+                $disk = Get-DiskInfo
+                $script:cs_diskTotal = $disk.total
+                $script:cs_diskUsed = $disk.used
+                $script:cs_lastDiskCheck = $now
+            }
+
+            # 静态信息（仅首次运行时获取，运行期间不会变化）
+            if ($script:cs_lastStatusCheck -eq 0) {
+                $script:cs_cpuInfo = Get-CpuInfo
+                $script:cs_cpuCores = Get-CpuCores
+                $script:cs_bootTime = Get-BootTime
+                $script:cs_arch = if ([Environment]::Is64BitOperatingSystem) { "x86_64" } else { "x86" }
+                # 获取操作系统信息（Caption 和 Version），合并调用避免重复查询
+                try {
+                    $os = Get-CimInstance Win32_OperatingSystem
+                    $script:cs_osName = $os.Caption
+                    $script:cs_kernelVersion = $os.Version
+                } catch {
+                    $script:cs_osName = ""
+                    $script:cs_kernelVersion = ""
+                }
+            }
+
+            # 状态检测缓存（进程数、连接数、GPU使用率、负载、当月累计流量，每STATUS_CHECK_INTERVAL检测一次）
+            if ($now - $script:cs_lastStatusCheck -ge $script:cs_statusCheckInterval -or $script:cs_lastStatusCheck -eq 0) {
+                # 动态状态
+                $script:cs_loadAvg = Get-LoadAvg -CpuPercent $cpuPercent
+                $script:cs_processCount = Get-ProcessCount
+                $conn = Get-TcpUdpConnections
+                $script:cs_tcpConn = $conn.tcp
+                $script:cs_udpConn = $conn.udp
+                $gpuInfo = @(Get-GpuInfo)
+                $script:cs_gpuInfoValue = $null
+                if ($gpuInfo.Count -gt 0) {
+                    $script:cs_gpuInfoValue = New-Object System.Collections.ArrayList
+                    foreach ($gpu in $gpuInfo) { [void]$script:cs_gpuInfoValue.Add($gpu) }
+                }
+
+                # 计算当月累计流量
+                $netTraffic = Update-MonthlyTraffic -CurrentRx $rxNow -CurrentTx $txNow -ResetDay $rDay -Interface $nicNames
+                $script:cs_rxMonthly = $netTraffic.rx
+                $script:cs_txMonthly = $netTraffic.tx
+
+                $script:cs_lastStatusCheck = $now
+            }
+
+            # 构建指标
+            $metrics = @{
+                cpu = $cpuPercent.ToString("F2")
+                ram_total = $mem.total.ToString()
+                ram_used = $mem.used.ToString()
+                swap_total = $swap.total.ToString()
+                swap_used = $swap.used.ToString()
+                disk_total = $script:cs_diskTotal.ToString()
+                disk_used = $script:cs_diskUsed.ToString()
+                load_avg = $script:cs_loadAvg
+                boot_time = $script:cs_bootTime.ToString()
+                net_rx = $rxNow.ToString()
+                net_tx = $txNow.ToString()
+                net_rx_monthly = $script:cs_rxMonthly.ToString()
+                net_tx_monthly = $script:cs_txMonthly.ToString()
+                net_in_speed = [math]::Floor($rxSpeed).ToString()
+                net_out_speed = [math]::Floor($txSpeed).ToString()
+                os = $script:cs_osName
+                arch = $script:cs_arch
+                kernel_version = $script:cs_kernelVersion
+                cpu_info = $script:cs_cpuInfo
+                cpu_cores = $script:cs_cpuCores.ToString()
+                gpu_info = $script:cs_gpuInfoValue
+                processes = $script:cs_processCount.ToString()
+                tcp_conn = $script:cs_tcpConn.ToString()
+                udp_conn = $script:cs_udpConn.ToString()
+                ip_v4 = $script:cs_ipV4
+                ip_v6 = $script:cs_ipV6
+                ping_ct = $script:cs_pingCt
+                ping_cu = $script:cs_pingCu
+                ping_cm = $script:cs_pingCm
+                ping_bd = $script:cs_pingBd
+                loss_ct = $script:cs_lossCt
+                loss_cu = $script:cs_lossCu
+                loss_cm = $script:cs_lossCm
+                loss_bd = $script:cs_lossBd
+            }
+
+            # 上报
+            $shouldReport = ($script:cs_lastReportTime -eq 0) -or ($now - $script:cs_lastReportTime -ge $rInterval)
+            if ($shouldReport) {
+                $payload = @{
+                    id = $srvId
+                    secret = $sec
+                    metrics = $metrics
+                    collect_interval = 0
+                    report_interval = $rInterval
+                }
+                $json = $payload | ConvertTo-Json -Depth 10 -Compress
+                try {
+                    $requestHeaders = @{
+                        'X-Agent-Config-Schema' = '3'
+                        'X-Agent-Version' = $AGENT_VERSION
+                        'X-Agent-Config-Md5' = if ($script:cs_configMd5) { $script:cs_configMd5 } else { 'none' }
+                    }
+                    $response = Invoke-WebRequest -UseBasicParsing -Uri $wUrl -Method Post -Body $json `
+                        -ContentType "application/json; charset=utf-8" -Headers $requestHeaders -TimeoutSec 8 -ErrorAction Stop
+                    if ([int]$response.StatusCode -eq 200) {
+                        # Windows PowerShell 5.1 returns byte[] for some textual content types.
+                        $responseBody = if ($response.Content -is [byte[]]) {
+                            [Text.Encoding]::UTF8.GetString([byte[]]$response.Content)
+                        } else {
+                            [string]$response.Content
+                        }
+                        $responseBody = if ($null -eq $responseBody) { "" } else { $responseBody.Trim() }
+                        if (-not [string]::IsNullOrWhiteSpace($responseBody) -and $responseBody -ne "OK") {
+                            $remoteConfig = ConvertFrom-AgentConfigResponse `
+                                -Body $responseBody `
+                                -ConfigMd5 ([string]$response.Headers['X-Agent-Config-Md5'])
+
+                            $hasRemoteConfig = (-not $remoteConfig.ContainsKey('has_config')) -or [bool]$remoteConfig['has_config']
+                            $configApplied = $true
+                            if ($hasRemoteConfig) {
+                                $configChanged = $remoteConfig.config_md5 -ne $script:cs_configMd5
+                                if ($configChanged) {
+                                    foreach ($entry in $remoteConfig.GetEnumerator()) {
+                                        if (@('has_config', 'update', 'rx_correction', 'tx_correction') -contains $entry.Key) {
+                                            continue
+                                        }
+                                        if ($config -is [hashtable]) {
+                                            $config[$entry.Key] = $entry.Value
+                                        } else {
+                                            $config | Add-Member -NotePropertyName $entry.Key -NotePropertyValue $entry.Value -Force
+                                        }
+                                    }
+                                    $configApplied = Save-Config -Config $config
+                                    if ($configApplied) {
+                                        $effectiveRemoteReportInterval = [math]::Max($remoteConfig.report_interval, 60)
+                                        $script:cs_reportInterval = $effectiveRemoteReportInterval
+                                        $script:cs_resetDay = $remoteConfig.reset_day
+                                        $script:cs_configMd5 = $remoteConfig.config_md5
+                                        if ($remoteConfig.ContainsKey('ct_node')) { $script:cs_ctNode = $remoteConfig.ct_node }
+                                        if ($remoteConfig.ContainsKey('cu_node')) { $script:cs_cuNode = $remoteConfig.cu_node }
+                                        if ($remoteConfig.ContainsKey('cm_node')) { $script:cs_cmNode = $remoteConfig.cm_node }
+                                        if ($remoteConfig.ContainsKey('bd_node')) { $script:cs_bdNode = $remoteConfig.bd_node }
+                                        if ($remoteConfig.ContainsKey('interface')) { $script:cs_interface = $remoteConfig.interface }
+                                        $currentRemoteNet = Get-NetworkStats -Interface ([string]$script:cs_interface)
+                                        $script:cs_prevNet = @{
+                                            rx = [long]$currentRemoteNet.rx
+                                            tx = [long]$currentRemoteNet.tx
+                                            time = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+                                        }
+                                        $timer.Stop()
+                                        $timer.Interval = $effectiveRemoteReportInterval * 1000
+                                        $timer.Start()
+                                        $remoteInterfaceLog = if ($script:cs_interface) { $script:cs_interface } else { "auto" }
+                                        Write-Log "动态配置已应用: md5=$($remoteConfig.config_md5) report_interval=$($remoteConfig.report_interval)s interface=$remoteInterfaceLog ct=$($remoteConfig.ct_node) cu=$($remoteConfig.cu_node) cm=$($remoteConfig.cm_node) bd=$($remoteConfig.bd_node)" "INFO"
+
+                                        $script:cs_lastPingCheck = 0
+                                        $script:cs_pingCt = Get-ProbeInitialValue $script:cs_ctNode
+                                        $script:cs_pingCu = Get-ProbeInitialValue $script:cs_cuNode
+                                        $script:cs_pingCm = Get-ProbeInitialValue $script:cs_cmNode
+                                        $script:cs_pingBd = Get-ProbeInitialValue $script:cs_bdNode
+                                        $script:cs_lossCt = Get-ProbeInitialValue $script:cs_ctNode
+                                        $script:cs_lossCu = Get-ProbeInitialValue $script:cs_cuNode
+                                        $script:cs_lossCm = Get-ProbeInitialValue $script:cs_cmNode
+                                        $script:cs_lossBd = Get-ProbeInitialValue $script:cs_bdNode
+                                        Remove-Item -LiteralPath $pingTempFile -Force -ErrorAction SilentlyContinue
+
+                                        $existingPingJob = Get-Job -Name "CFProbePingJob" -ErrorAction SilentlyContinue
+                                        if ($existingPingJob) {
+                                            $existingPingJob | Stop-Job -ErrorAction SilentlyContinue | Out-Null
+                                            $existingPingJob | Remove-Job -Force -ErrorAction SilentlyContinue | Out-Null
+                                        }
+                                        $newCtNode = if ($remoteConfig.ContainsKey('ct_node')) { $remoteConfig.ct_node } else { $config.ct_node }
+                                        $newCuNode = if ($remoteConfig.ContainsKey('cu_node')) { $remoteConfig.cu_node } else { $config.cu_node }
+                                        $newCmNode = if ($remoteConfig.ContainsKey('cm_node')) { $remoteConfig.cm_node } else { $config.cm_node }
+                                        $newBdNode = if ($remoteConfig.ContainsKey('bd_node')) { $remoteConfig.bd_node } else { $config.bd_node }
+                                        Start-PingBackgroundJob -CtNode $newCtNode -CuNode $newCuNode -CmNode $newCmNode -BdNode $newBdNode -TempFile $pingTempFile
+                                    }
+                                }
+                            }
+
+                            if ($hasRemoteConfig -and $configApplied -and ($remoteConfig.ContainsKey('rx_correction') -or $remoteConfig.ContainsKey('tx_correction'))) {
+                                $rxCorr = if ($remoteConfig.ContainsKey('rx_correction')) { $remoteConfig.rx_correction } else { "" }
+                                $txCorr = if ($remoteConfig.ContainsKey('tx_correction')) { $remoteConfig.tx_correction } else { "" }
+                                Invoke-TrafficCorrection -ServerId $srvId -Secret $sec -WorkerUrl $wUrl -RxCorrection $rxCorr -TxCorrection $txCorr -Interface ([string]$script:cs_interface)
+                            }
+
+                            if ($remoteConfig.ContainsKey('update') -and $remoteConfig.update -eq "1") {
+                                Write-Log "收到自动更新指令" "DEBUG"
+                                Schedule-AgentUpdate -WorkerUrl $wUrl -AutoUpdate $script:cs_autoUpdate
+                            }
+                        }
+                    }
+                } catch {
+                    Write-Log "上报失败: $_" "WARN"
+                }
+                $script:cs_lastReportTime = $now
+            }
+        } catch {
+            Write-Log "采集异常: $_" "ERROR"
+        }
+    })
+
+    $timer.Start()
+
+    # 启动 WinForms 消息泵 — 这是托盘菜单能响应的关键
+    [System.Windows.Forms.Application]::Run()
+}
+
+# ============================================================
+# 服务管理
+# ============================================================
+
+function Install-Service {
+    # 添加调试输出
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "开始安装 CF-Server-Monitor" -ForegroundColor Cyan
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "调试信息:" -ForegroundColor Cyan
+    Write-Host "  Id: '$Id'" -ForegroundColor Cyan
+    Write-Host "  Secret: '********'" -ForegroundColor Cyan
+    Write-Host "  Url: '$Url'" -ForegroundColor Cyan
+    Write-Host "  Interface: '$Interface'" -ForegroundColor Cyan
+    Write-Host "  AutoUpdate: '$AutoUpdate'" -ForegroundColor Cyan
+    Write-Host "  脚本目录: $SCRIPT_DIR" -ForegroundColor Cyan
+    Write-Host "  配置文件: $CONFIG_FILE" -ForegroundColor Cyan
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    if ($AutoUpdate -ne "") {
+        try {
+            $null = ConvertTo-BinaryFlag -Value $AutoUpdate -Default "0" -Strict
+        } catch {
+            Write-Host "错误: $($_.Exception.Message)" -ForegroundColor Red
+            return
+        }
+    }
+    
+    if (-not (Test-Admin)) {
+        Write-Host "需要管理员权限，正在提升..." -ForegroundColor Yellow
+        Invoke-AsAdmin
+        return
+    }
+
+    # 写入配置
+    $existingConfig = Load-Config
+    # 清理输入参数
+    $cleanId = if ($Id) { $Id.Trim().Trim("'").Trim('"') } else { "" }
+    $cleanSecret = if ($Secret) { $Secret.Trim().Trim("'").Trim('"') } else { "" }
+    $cleanUrl = if ($Url) { $Url.Trim().Trim("'").Trim('"') } else { "" }
+    try {
+        $existingInterface = if ($existingConfig) {
+            Normalize-NetworkInterfaceList -Value (Get-ConfigProperty $existingConfig 'interface' "")
+        } else {
+            ""
+        }
+        $interfaceValue = if ($Interface) {
+            Normalize-NetworkInterfaceList -Value $Interface -Strict
+        } else {
+            $existingInterface
+        }
+        $existingAutoUpdate = if ($existingConfig -and $null -ne $existingConfig.auto_update) {
+            ConvertTo-BinaryFlag -Value $existingConfig.auto_update -Default "0"
+        } else {
+            "0"
+        }
+        $autoUpdateValue = if ($AutoUpdate -ne "") {
+            ConvertTo-BinaryFlag -Value $AutoUpdate -Default $existingAutoUpdate -Strict
+        } else {
+            $existingAutoUpdate
+        }
+    } catch {
+        Write-Host "错误: $($_.Exception.Message)" -ForegroundColor Red
+        return
+    }
+
+    $config = @{
+        server_id = if ($cleanId) { $cleanId } elseif ($existingConfig) { $existingConfig.server_id } else { "" }
+        secret = if ($cleanSecret) { $cleanSecret } elseif ($existingConfig) { $existingConfig.secret } else { "" }
+        worker_url = if ($cleanUrl) { $cleanUrl } elseif ($existingConfig) { $existingConfig.worker_url } else { "" }
+        collect_interval = [int]$CollectInterval
+        report_interval = [int]$ReportInterval
+        reset_day = [int]$ResetDay
+        auto_update = $autoUpdateValue
+        config_md5 = "none"
+        ct_node = if ($CtNode) { $CtNode } else { Get-ConfigProperty $existingConfig 'ct_node' "" }
+        cu_node = if ($CuNode) { $CuNode } else { Get-ConfigProperty $existingConfig 'cu_node' "" }
+        cm_node = if ($CmNode) { $CmNode } else { Get-ConfigProperty $existingConfig 'cm_node' "" }
+        bd_node = if ($BdNode) { $BdNode } else { Get-ConfigProperty $existingConfig 'bd_node' "" }
+        interface = $interfaceValue
+    }
+
+    if (-not $config.server_id -or -not $config.secret -or -not $config.worker_url) {
+        Write-Host "错误: 缺少必要参数 -Id, -Secret, -Url" -ForegroundColor Red
+        Write-Host "当前值:" -ForegroundColor Yellow
+        Write-Host "  server_id: '$($config.server_id)'" -ForegroundColor Yellow
+        Write-Host "  secret: '$($config.secret)'" -ForegroundColor Yellow
+        Write-Host "  worker_url: '$($config.worker_url)'" -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "正在保存配置..." -ForegroundColor Cyan
+    Write-Host "配置文件路径: $CONFIG_FILE" -ForegroundColor Cyan
+    $saveResult = Save-Config -Config $config
+    if ($saveResult) {
+        Write-Host "配置保存成功" -ForegroundColor Green
+        # 验证文件是否存在
+        if (Test-Path $CONFIG_FILE) {
+            Write-Host "配置文件已创建: $CONFIG_FILE" -ForegroundColor Green
+        } else {
+            Write-Host "警告: 配置文件保存后未找到！" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "配置保存失败！" -ForegroundColor Red
+        Write-Host "请检查是否有写入权限: $CONFIG_DIR" -ForegroundColor Yellow
+        return
+    }
+
+    # 流量校正
+    $hasRxCorr = $RxCorrection -ne ""
+    $hasTxCorr = $TxCorrection -ne ""
+    if ($hasRxCorr -or $hasTxCorr) {
+        Write-Host "应用流量校正..." -ForegroundColor Cyan
+        $netStat = Get-NetworkStats -Interface ([string]$config.interface)
+        $currentRx = [long]$netStat.rx
+        $currentTx = [long]$netStat.tx
+        $nowTs = [long]([DateTimeOffset]::Now.ToUnixTimeSeconds())
+        $rxBytes = if ($hasRxCorr) { [long]([double]$RxCorrection * 1GB) } else { 0 }
+        $txBytes = if ($hasTxCorr) { [long]([double]$TxCorrection * 1GB) } else { 0 }
+        $trafficData = @{
+            RX_PREV = $currentRx.ToString()
+            TX_PREV = $currentTx.ToString()
+            RX_PERIOD = $rxBytes.ToString()
+            TX_PERIOD = $txBytes.ToString()
+            LAST_CHECK = $nowTs.ToString()
+            PERIOD_START = "0"
+            INTERFACE = [string]$config.interface
+        }
+        Save-TrafficData -Data $trafficData
+        if ($hasRxCorr) { Write-Host "  下行校正: ${RxCorrection}GB" -ForegroundColor Cyan }
+        if ($hasTxCorr) { Write-Host "  上行校正: ${TxCorrection}GB" -ForegroundColor Cyan }
+    }
+
+    # 创建计划任务
+    if ($MyInvocation.MyCommand.Path) {
+        $scriptPath = $MyInvocation.MyCommand.Path
+    } elseif ($PSCommandPath) {
+        $scriptPath = $PSCommandPath
+    } else {
+        $scriptPath = Join-Path (Get-Location).Path "cf-server-monitor.ps1"
+    }
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File `"$scriptPath`" run -STA"
+    $trigger = New-ScheduledTaskTrigger -AtLogOn
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+
+    $existingTask = Get-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue
+    if ($existingTask) {
+        Unregister-ScheduledTask -TaskName $TASK_NAME -Confirm:$false
+    }
+
+    Register-ScheduledTask -TaskName $TASK_NAME -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest -Force | Out-Null
+
+    $effectiveInstallReportInterval = [math]::Max([int]$config.report_interval, 60)
+
+    Write-Host ""
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "       CF-Server-Monitor $AGENT_VERSION 安装成功" -ForegroundColor Green
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host "  Server ID  : $($config.server_id)"
+    Write-Host "  Worker URL : $($config.worker_url)"
+    Write-Host "  上报间隔   : $($config.report_interval)秒"
+    Write-Host "  实际间隔   : $effectiveInstallReportInterval秒"
+    Write-Host "  采样间隔   : Windows PowerShell 版不启用 samples 缓存"
+    Write-Host "  统计网卡   : $(if ($config.interface) { $config.interface } else { '自动汇总' })"
+    Write-Host "  流量重置日 : $($config.reset_day)号"
+    Write-Host "  自动更新   : $($config.auto_update)"
+    Write-Host "  配置文件   : $CONFIG_FILE"
+    Write-Host "  日志文件   : $LOG_FILE"
+    Write-Host "  自动启动   : 已注册计划任务 $TASK_NAME"
+    Write-Host "=============================================" -ForegroundColor Green
+    Write-Host ""
+
+
+    # 先停止已有的探针进程
+    Write-Host "检查并停止已有的探针进程..." -ForegroundColor Cyan
+    $existing = @()
+    try {
+        $processes = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop
+        foreach ($proc in $processes) {
+            if ($proc.CommandLine -like "*cf-server-monitor*run*" -or $proc.CommandLine -like "*$scriptPath*run*") {
+                $existing += Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        $existing = Get-Process powershell -ErrorAction SilentlyContinue | Where-Object {
+            $_.CommandLine -like "*cf-server-monitor*run*" -or $_.CommandLine -like "*$scriptPath*run*"
+        }
+    }
+    if ($existing) {
+        Write-Host "发现已有探针进程 (PID: $($existing.Id -join ', '))，正在停止..." -ForegroundColor Yellow
+        $existing | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+    }
+
+    # 启动探针，传递必要的参数
+    Write-Host "正在启动探针..." -ForegroundColor Yellow
+    $runArgs = "-NoProfile -ExecutionPolicy Bypass -STA -File `"$scriptPath`" run -STA"
+    Write-Host "启动命令: powershell.exe $runArgs" -ForegroundColor Cyan
+    Start-Process powershell.exe -ArgumentList $runArgs -WindowStyle Hidden
+    Start-Sleep -Seconds 2  # 等待进程启动
+
+    # 检查是否启动成功
+    $running = $false
+    try {
+        $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop
+        foreach ($p in $procs) {
+            if ($p.CommandLine -like "*cf-server-monitor*run*") {
+                $running = $true
+                break
+            }
+        }
+    } catch {}
+    if ($running) {
+        Write-Host "探针已启动" -ForegroundColor Green
+    } else {
+        Write-Host "警告: 探针可能未启动，请检查日志: $LOG_FILE" -ForegroundColor Yellow
+    }
+
+    Write-Host "查看日志: $LOG_FILE" -ForegroundColor Green
+}
+
+function Uninstall-Service {
+    if (-not (Test-Admin)) {
+        Write-Host "需要管理员权限，正在提升..." -ForegroundColor Yellow
+        Invoke-AsAdmin
+        return
+    }
+
+    # 删除计划任务
+    $task = Get-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue
+    if ($task) {
+        Unregister-ScheduledTask -TaskName $TASK_NAME -Confirm:$false
+        Write-Host "已删除计划任务: $TASK_NAME" -ForegroundColor Green
+    }
+
+    # 终止进程
+    try {
+        $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop
+        foreach ($p in $procs) {
+            if ($p.CommandLine -like "*cf-server-monitor*run*") {
+                Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+
+    # 清理文件
+    if (Test-Path $CONFIG_FILE) { Remove-Item $CONFIG_FILE -Force }
+    if (Test-Path $TRAFFIC_FILE) { Remove-Item $TRAFFIC_FILE -Force }
+    if (Test-Path $LOG_FILE) { Remove-Item $LOG_FILE -Force }
+
+    Write-Host "卸载完成。" -ForegroundColor Green
+}
+
+function Get-ServiceStatus {
+    $task = Get-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue
+    if ($task) {
+        Write-Host "计划任务: $($task.State)" -ForegroundColor Green
+    } else {
+        Write-Host "计划任务: 未注册" -ForegroundColor Yellow
+    }
+    $running = @()
+    try {
+        $processes = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop
+        foreach ($proc in $processes) {
+            if ($proc.CommandLine -like "*cf-server-monitor*run*") {
+                $running += Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        $running = Get-Process powershell -ErrorAction SilentlyContinue | Where-Object {
+            $_.CommandLine -like "*cf-server-monitor*run*"
+        }
+    }
+    if ($running) {
+        Write-Host "探针进程: 运行中 (PID: $($running.Id -join ', '))" -ForegroundColor Green
+    } else {
+        Write-Host "探针进程: 未运行" -ForegroundColor Yellow
+    }
+    $config = Load-Config
+    if ($config) {
+        $effectiveStatusReportInterval = [math]::Max([int]$config.report_interval, 60)
+        $statusAutoUpdate = ConvertTo-BinaryFlag -Value $config.auto_update -Default "0"
+        Write-Host "配置文件: $CONFIG_FILE" -ForegroundColor Cyan
+        Write-Host "  Server ID  : $($config.server_id)"
+        Write-Host "  Worker URL : $($config.worker_url)"
+        Write-Host "  上报间隔   : $($config.report_interval)秒"
+        Write-Host "  实际间隔   : $effectiveStatusReportInterval秒"
+        Write-Host "  自动更新   : $statusAutoUpdate"
+    }
+}
+
+function Stop-Service {
+    $running = @()
+    try {
+        $processes = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop
+        foreach ($proc in $processes) {
+            if ($proc.CommandLine -like "*cf-server-monitor*run*") {
+                $running += Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        $running = Get-Process powershell -ErrorAction SilentlyContinue | Where-Object {
+            $_.CommandLine -like "*cf-server-monitor*run*"
+        }
+    }
+    if ($running) {
+        $running | Stop-Process -Force -ErrorAction SilentlyContinue
+        Write-Host "探针已停止 (PID: $($running.Id -join ', '))。" -ForegroundColor Green
+    } else {
+        Write-Host "探针未运行。" -ForegroundColor Yellow
+    }
+}
+
+# ============================================================
+# 入口
+# ============================================================
+
+# 入口点 - 添加全局错误捕获
+try {
+    switch ($Action) {
+        "install"   { Install-Service }
+        "uninstall" { Uninstall-Service }
+        "run"       { Invoke-TrayCollectLoop }
+        "tray"      { Invoke-TrayCollectLoop }
+        "status"    { Get-ServiceStatus }
+        "stop"      { Stop-Service }
+    }
+} catch {
+    Write-Host "=============================================" -ForegroundColor Red
+    Write-Host "错误: $_" -ForegroundColor Red
+    Write-Host "错误详情: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "错误行: $($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Red
+    Write-Host "=============================================" -ForegroundColor Red
+}

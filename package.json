@@ -1,0 +1,48 @@
+{
+  "name": "probedeck",
+  "version": "2.8.5",
+  "description": "ProbeDeck（探针台）— CF-Server-Monitor 的 Docker/VPS 移植版：Cloudflare Workers 后端 → Node.js 单进程（better-sqlite3 + ws），前端与 API 与原版完全一致",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev:server": "API_SECRET=dev-secret-change-me PORT=8787 node server/index.js",
+    "dev:frontend": "vite",
+    "build": "node scripts/build.js",
+    "build:frontend": "node scripts/build.js",
+    "build:github-page": "node scripts/build-github-page.js",
+    "test": "node --test test/admin-usage.test.js test/dashboard-latency-window.test.js test/frontend-api-base.test.js test/frontend-live-socket.test.js test/metrics-broadcaster-agent-config.test.js test/traffic-report.test.js",
+    "test:all": "npm run test && npm run test:agent-config && npm run test:history-query",
+    "test:agent-config": "node test/agent-config.js",
+    "test:history-query": "node --test test/history-query.test.js",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "monitor",
+    "server",
+    "probe",
+    "docker",
+    "vps",
+    "self-hosted"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^12.0.0",
+    "chart.js": "^4.4.0",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "leaflet": "^1.9.4",
+    "mmdb-lib": "^3.0.3",
+    "vue": "^3.4.0",
+    "vue-router": "^4.4.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "fs-extra": "^11.3.5",
+    "miniflare": "^5.20260801.1-alpha",
+    "vite": "^6.0.0",
+    "vite-plugin-mkcert": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

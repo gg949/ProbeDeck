@@ -1,0 +1,23 @@
+# ProbeDeck — CF-Server-Monitor 的 Docker/VPS 移植版
+services:
+  probedeck:
+    build: .
+    image: probedeck:latest
+    container_name: probedeck
+    restart: unless-stopped
+    ports:
+      - "17986:17986"
+    environment:
+      # API_SECRET 可不设置：首次启动自动生成（写入 data/api_secret.txt 并打印在日志里），
+      # 如需自定义（比如从旧部署迁移探针）再取消下面这行的注释并填写。
+      # API_SECRET: "改成你自己的密钥"
+
+      # 地区自动识别：maxmind（默认，本地 GeoLite2 数据库）/ ipinfo（在线）/ off（关闭）
+      GEOIP_PROVIDER: "maxmind"
+      # 自定义 IP 数据库路径（可选，挂载自己的 .mmdb 文件；放在 ./data/geoip/ 也会被自动识别）
+      # GEOIP_MMDB_PATH: "/app/data/geoip/custom.mmdb"
+      # ipinfo.io token（可选，GEOIP_PROVIDER=ipinfo 时提高额度）
+      # IPINFO_TOKEN: ""
+    volumes:
+      # SQLite 数据库、运行数据与自动下载的 GeoIP 库（备份/迁移只需保留该目录）
+      - ./data:/app/data
