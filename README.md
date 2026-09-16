@@ -56,8 +56,9 @@ services:
       # 地区自动识别：maxmind（默认，本地 GeoLite2 数据库）/ ipinfo（在线）/ off（关闭）
       GEOIP_PROVIDER: "maxmind"
     volumes:
-      # SQLite 数据库、运行数据与自动下载的 GeoIP 库（备份/迁移只需保留该目录）
-      - ./data:/app/data
+      # 数据目录：项目专属 /opt/probedeck/data（自动创建）
+      # 数据集中一处，更新/备份/卸载都省事；想换位置把左边路径改掉即可
+      - /opt/probedeck/data:/app/data
 ```
 
 **2. 启动：**
@@ -75,24 +76,42 @@ docker compose pull && docker compose up -d
 ### 方式二：一行命令（docker run）
 
 ```bash
-docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v ./data:/app/data ghcr.io/gg949/probedeck:latest
+docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v /opt/probedeck/data:/app/data ghcr.io/gg949/probedeck:latest
 ```
 
 > `17986:17986` 左边是宿主机端口，换端口改左边的数字即可；
-> `./data:/app/data` 是数据目录，在你希望存放数据的位置执行即可（会自动创建 `data` 文件夹）。
+> `/opt/probedeck/data` 是**项目专属数据目录**（自动创建）——数据集中一处：
+> 更新时换任何目录执行都不会挂错、备份只打包这一个目录、卸载删它即清净。
+> 想放别的位置就把左边路径换掉（比如 `-v ./data:/app/data` 存到当前目录）。
+
+**以后升级版本**（任何目录执行都行）：
+
+```bash
+docker pull ghcr.io/gg949/probedeck:latest && docker stop probedeck && docker rm probedeck && docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v /opt/probedeck/data:/app/data ghcr.io/gg949/probedeck:latest
+```
+
+> 数据都在 `/opt/probedeck/data` 里，删容器不影响；挂载用的是完整路径，**任何目录执行都不会挂错**。
 
 ### 启动后访问
 
 - 监控面板：`http://你的服务器IP:端口/`（默认 17986，改过端口就用你自己的）
 - 管理面板：`http://你的服务器IP:端口/admin`
   - 用户名：`admin`
-  - 初始密码：**首次启动时自动生成**，执行这行查看：
+  - 初始密码：**首次启动时自动生成**，查看方式按你的部署方式选一种：
     ```bash
+    # 用 docker compose（方式一）部署的：
     docker compose logs | grep API_SECRET
+
+    # 用 docker run（方式二，一行命令）部署的：
+    docker logs probedeck 2>&1 | grep API_SECRET
     ```
   - （密码同时保存在 `data/api_secret.txt`，登录后可在设置里修改）
 
-> 想自定义密钥（比如从旧部署迁移探针）？在 `docker-compose.yml` 里设置 `API_SECRET` 即可，优先级高于自动生成。
+> 想自定义密钥（比如从旧部署迁移探针）？
+> - docker compose 部署：在 `docker-compose.yml` 里加 `API_SECRET: "你的密钥"`
+> - docker run 部署：在命令里加 `-e API_SECRET=你的密钥`
+>
+> 优先级高于自动生成。
 
 ### 想从源码构建？（可选）
 
@@ -206,7 +225,7 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 
 **自定义 IP 数据库**：把任意 GeoLite2 格式的 `.mmdb` 文件挂载进容器，然后两种方式任选——
 
-- 放到 `./data/geoip/GeoLite2-Country.mmdb`（推荐，自动识别）
+- 放到 `/opt/probedeck/data/geoip/GeoLite2-Country.mmdb`（推荐，自动识别）
 - 或设置 `GEOIP_MMDB_PATH=/app/data/geoip/你的文件.mmdb`
 
 数据库文件查找顺序：`GEOIP_MMDB_PATH` → `data/geoip/GeoLite2-Country.mmdb` → 镜像内置；
@@ -244,12 +263,12 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 
 | 文件 | 说明 |
 | --- | --- |
-| `data/monitor.db` | 主数据库（SQLite：服务器、历史、设置） |
-| `data/api_secret.txt` | 自动生成的密钥 |
-| `data/geoip/` | 自动下载的 GeoIP 数据库（如使用） |
-| `data/do-storage.json` | 实时广播模块的少量运行状态 |
+| `/opt/probedeck/data/monitor.db` | 主数据库（SQLite：服务器、历史、设置） |
+| `/opt/probedeck/data/api_secret.txt` | 自动生成的密钥 |
+| `/opt/probedeck/data/geoip/` | 自动下载的 GeoIP 数据库（如使用） |
+| `/opt/probedeck/data/do-storage.json` | 实时广播模块的少量运行状态 |
 
-备份：停止容器后复制整个 `data/` 目录；恢复：放回后启动。
+备份：停止容器后复制整个 `/opt/probedeck/data/` 目录；恢复：放回后启动。
 历史数据保留时长**可自定义**：默认约两周（`HISTORY_RETENTION_DAYS=14`），改成 `30` 即保留约一个月；
 内部按"轮换周期 = 保留天数的一半"自动清理旧数据，数据库体积保持很小。
 
@@ -270,7 +289,7 @@ npm start          # 默认 17986 端口；API_SECRET 同样会自动生成
 | 地区识别 | 已用 GeoIP 复刻（见上节），行为与原版基本一致 |
 | CF 用量统计 | 管理面板中的 Cloudflare 额度查询卡片已移除（VPS 部署无此概念） |
 | Turnstile 人机验证 | CF 服务，默认关闭（建议保持关闭）；如需启用需服务器能访问 challenges.cloudflare.com |
-| 版本更新提示 | 面板里的"检查新版"读取的是本仓库的 version.json（发新版时同步更新它即可提示最新版）；升级执行 `docker compose pull && docker compose up -d` |
+| 版本更新提示 | 面板里的"检查新版"读取的是本仓库的 version.json（发新版时同步更新它即可提示最新版）；升级方法见「部署」章节中对应你部署方式（compose / docker run）的升级说明 |
 | 其他 | 定时任务按 UTC（与原版一致）、周期表轮换（保留时长可自定义）、离线检测、通知渠道逻辑 100% 保留 |
 
 ## 从 Cloudflare 原版迁移数据
@@ -314,15 +333,17 @@ npx wrangler d1 export server-monitor-db --remote --output=backup.sql
 # 安装 sqlite3 命令行工具（没装过的话）
 sudo apt install -y sqlite3
 
-# 停止面板容器（导入期间必须停止，避免文件锁）
-cd 你的部署目录 && docker compose down
+# ① 停止面板容器（导入期间必须停止，避免文件锁）——按部署方式选一条：
+docker compose down      # compose 部署（在 compose 文件所在目录执行）
+docker stop probedeck    # docker run（一行命令）部署
 
-# 用导出文件建一个新库（当前库如果已有数据，先改名备份、别删）
-mv data/monitor.db data/monitor.db.bak 2>/dev/null
-sqlite3 data/monitor.db < backup.sql
+# ② 用导出文件建一个新库（当前库如果已有数据，先改名备份、别删）
+mv /opt/probedeck/data/monitor.db /opt/probedeck/data/monitor.db.bak 2>/dev/null
+sqlite3 /opt/probedeck/data/monitor.db < backup.sql
 
-# 重新启动
-docker compose up -d
+# ③ 重新启动——按你的部署方式选一条：
+docker compose up -d     # compose 部署
+docker start probedeck   # docker run（一行命令）部署
 ```
 
 **③ 完成**：打开面板，用**原来的密码登录**——改过密码的话原密码直接可用；
@@ -362,19 +383,30 @@ curl -fsSL 'http://你的面板地址/uninstall.sh' | sudo sh -s
 
 ### 卸载主控端（部署 ProbeDeck 的服务器）
 
+**① 停止并删除容器**（按你的部署方式选一条）：
+
 ```bash
-# ① 停止并删除容器
-docker compose down      # compose 部署：在部署目录里执行
-# 或
-docker rm -f probedeck   # docker run 部署
+# docker compose 部署的（在部署目录里执行）：
+docker compose down
 
-# ②（可选）删除镜像
-docker rmi ghcr.io/gg949/probedeck:latest
-
-# ③（可选）删除数据/目录 —— ⚠️ 数据库与历史数据会一并删除，需保留请先备份 data/
-#    compose 部署：删除整个部署目录（含 data/）
-#    docker run 部署：删除你当时执行命令所在目录（里面的 data/）
+# docker run（一行命令）部署的：
+docker stop probedeck && docker rm probedeck
 ```
+
+**②（可选）删除镜像**：
+
+```bash
+docker rmi ghcr.io/gg949/probedeck:latest
+```
+
+**③（可选）删除数据**——⚠️ 面板设置、服务器记录、全部历史数据都在 `/opt/probedeck/data` 里，删了就没了；想保留就先复制一份备份。
+
+```bash
+# 数据都在项目专属目录里，整个删掉即可（干净利落）
+rm -rf /opt/probedeck
+```
+
+> 💡 数据只存在 `/opt/probedeck/data` 里（容器内部没有独立存储）。想卸载得干干净净 = ① 删容器 + ② 删镜像 + ③ `rm -rf /opt/probedeck`，三个都做即彻底清空。
 
 ## 常见问题
 
@@ -382,8 +414,8 @@ docker rmi ghcr.io/gg949/probedeck:latest
 运行 `npm run build:frontend`（Docker 构建时会自动执行）。
 
 **Q：想换端口？**
-- 部署时：把一行命令里 `HOST_PORT` 后面的数字改成你要的（或在 `docker-compose.yml` / `.env` 里设置 `HOST_PORT`）
-- 部署后：改 `docker-compose.yml` 里 `ports` 的左侧数字，然后 `docker compose up -d` 重建容器
+- 部署时：**一行命令部署** → 把 `-p 17986:17986` 左侧的 17986 改成你要的端口；**compose 部署** → 改 `docker-compose.yml` 里 `${HOST_PORT:-17986}` 的默认值，或启动时执行 `HOST_PORT=你的端口 docker compose up -d`
+- 部署后：**compose 部署** → 改 `docker-compose.yml` 里 `ports` 的左侧数字，然后 `docker compose up -d` 重建容器；**docker run 部署** → 用「方式二」的升级命令重新跑一遍，只把 `-p` 左侧数字换成新端口
 - 换完记得同步调整反代（隧道/Caddy/Nginx）的目标端口
 
 **Q：上传了自定义网站图标（favicon）但不生效？**
@@ -396,7 +428,7 @@ docker rmi ghcr.io/gg949/probedeck:latest
 
 **Q：地区都显示空白？**
 查看启动日志中"地区识别"一行：若显示"已降级"说明数据库未就绪——联网后重启容器会自动下载，
-或手动放置 `.mmdb` 到 `./data/geoip/`。
+或手动放置 `.mmdb` 到 `/opt/probedeck/data/geoip/`。
 
 ## 致谢与许可
 
