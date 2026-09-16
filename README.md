@@ -97,15 +97,18 @@ docker pull ghcr.io/gg949/probedeck:latest && docker stop probedeck && docker rm
 - 监控面板：`http://你的服务器IP:端口/`（默认 17986，改过端口就用你自己的）
 - 管理面板：`http://你的服务器IP:端口/admin`
   - 用户名：`admin`
-  - 初始密码：**首次启动时自动生成**，查看方式按你的部署方式选一种：
+  - 初始密码：**首次启动时自动生成**，保存在数据目录的 `api_secret.txt` 里，直接查看：
     ```bash
-    # 用 docker compose（方式一）部署的：
-    docker compose logs | grep API_SECRET
+    # docker run 部署（方式二）：
+    cat /opt/probedeck/data/api_secret.txt
 
-    # 用 docker run（方式二，一行命令）部署的：
-    docker logs probedeck 2>&1 | grep API_SECRET
+    # docker compose 部署（方式一，在 docker-compose.yml 所在目录执行）：
+    cat data/api_secret.txt
+
+    # 或从容器里读（两种方式通用）：
+    docker exec probedeck cat /app/data/api_secret.txt
     ```
-  - （密码同时保存在 `data/api_secret.txt`，登录后可在设置里修改）
+  - （首次启动时日志里也会打印一次；登录后可在面板里修改密码——修改后本文件的值仅用于探针上报，不再作为登录密码）
 
 > 想自定义密钥（比如从旧部署迁移探针）？
 > - docker compose 部署：在 `docker-compose.yml` 里加 `API_SECRET: "你的密钥"`
