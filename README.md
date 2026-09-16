@@ -81,18 +81,35 @@ docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v ./data
 > `17986:17986` 左边是宿主机端口，换端口改左边的数字即可；
 > `./data:/app/data` 是数据目录，在你希望存放数据的位置执行即可（会自动创建 `data` 文件夹）。
 
+**以后升级版本**（在当初部署的目录下执行）：
+
+```bash
+docker pull ghcr.io/gg949/probedeck:latest && docker stop probedeck && docker rm probedeck && docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v ./data:/app/data ghcr.io/gg949/probedeck:latest
+```
+
+> 数据都在宿主机 `data` 文件夹里，删容器不影响；但 **`./data` 是相对路径，必须回到当初部署的目录执行**，换目录会挂到新的空 data。
+> 忘了当初在哪个目录？执行 `docker inspect probedeck --format '{{range .Mounts}}{{.Source}}{{end}}'` 查看数据目录的实际位置，父目录就是部署位置。
+
 ### 启动后访问
 
 - 监控面板：`http://你的服务器IP:端口/`（默认 17986，改过端口就用你自己的）
 - 管理面板：`http://你的服务器IP:端口/admin`
   - 用户名：`admin`
-  - 初始密码：**首次启动时自动生成**，执行这行查看：
+  - 初始密码：**首次启动时自动生成**，查看方式按你的部署方式选一种：
     ```bash
+    # 用 docker compose（方式一）部署的：
     docker compose logs | grep API_SECRET
+
+    # 用 docker run（方式二，一行命令）部署的：
+    docker logs probedeck 2>&1 | grep API_SECRET
     ```
   - （密码同时保存在 `data/api_secret.txt`，登录后可在设置里修改）
 
-> 想自定义密钥（比如从旧部署迁移探针）？在 `docker-compose.yml` 里设置 `API_SECRET` 即可，优先级高于自动生成。
+> 想自定义密钥（比如从旧部署迁移探针）？
+> - docker compose 部署：在 `docker-compose.yml` 里加 `API_SECRET: "你的密钥"`
+> - docker run 部署：在命令里加 `-e API_SECRET=你的密钥`
+>
+> 优先级高于自动生成。
 
 ### 想从源码构建？（可选）
 
@@ -270,7 +287,7 @@ npm start          # 默认 17986 端口；API_SECRET 同样会自动生成
 | 地区识别 | 已用 GeoIP 复刻（见上节），行为与原版基本一致 |
 | CF 用量统计 | 管理面板中的 Cloudflare 额度查询卡片已移除（VPS 部署无此概念） |
 | Turnstile 人机验证 | CF 服务，默认关闭（建议保持关闭）；如需启用需服务器能访问 challenges.cloudflare.com |
-| 版本更新提示 | 面板里的"检查新版"读取的是本仓库的 version.json（发新版时同步更新它即可提示最新版）；升级执行 `docker compose pull && docker compose up -d` |
+| 版本更新提示 | 面板里的"检查新版"读取的是本仓库的 version.json（发新版时同步更新它即可提示最新版）；升级方法见「部署」章节中对应你部署方式（compose / docker run）的升级说明 |
 | 其他 | 定时任务按 UTC（与原版一致）、周期表轮换（保留时长可自定义）、离线检测、通知渠道逻辑 100% 保留 |
 
 ## 从 Cloudflare 原版迁移数据
@@ -314,15 +331,18 @@ npx wrangler d1 export server-monitor-db --remote --output=backup.sql
 # 安装 sqlite3 命令行工具（没装过的话）
 sudo apt install -y sqlite3
 
-# 停止面板容器（导入期间必须停止，避免文件锁）
-cd 你的部署目录 && docker compose down
+# ① 停止面板容器（导入期间必须停止，避免文件锁）——先 cd 到部署目录，再按你的部署方式选一条：
+cd 你的部署目录
+docker compose down      # compose 部署
+docker stop probedeck    # docker run（一行命令）部署
 
-# 用导出文件建一个新库（当前库如果已有数据，先改名备份、别删）
+# ② 用导出文件建一个新库（当前库如果已有数据，先改名备份、别删）
 mv data/monitor.db data/monitor.db.bak 2>/dev/null
 sqlite3 data/monitor.db < backup.sql
 
-# 重新启动
-docker compose up -d
+# ③ 重新启动——按你的部署方式选一条：
+docker compose up -d     # compose 部署
+docker start probedeck   # docker run（一行命令）部署
 ```
 
 **③ 完成**：打开面板，用**原来的密码登录**——改过密码的话原密码直接可用；
@@ -362,19 +382,41 @@ curl -fsSL 'http://你的面板地址/uninstall.sh' | sudo sh -s
 
 ### 卸载主控端（部署 ProbeDeck 的服务器）
 
+**① 停止并删除容器**（按你的部署方式选一条）：
+
 ```bash
-# ① 停止并删除容器
-docker compose down      # compose 部署：在部署目录里执行
-# 或
-docker rm -f probedeck   # docker run 部署
+# docker compose 部署的（在部署目录里执行）：
+docker compose down
 
-# ②（可选）删除镜像
-docker rmi ghcr.io/gg949/probedeck:latest
-
-# ③（可选）删除数据/目录 —— ⚠️ 数据库与历史数据会一并删除，需保留请先备份 data/
-#    compose 部署：删除整个部署目录（含 data/）
-#    docker run 部署：删除你当时执行命令所在目录（里面的 data/）
+# docker run（一行命令）部署的：
+docker stop probedeck && docker rm probedeck
 ```
+
+**②（可选）删除镜像**：
+
+```bash
+docker rmi ghcr.io/gg949/probedeck:latest
+```
+
+**③（可选）删除数据**——⚠️ 面板设置、服务器记录、全部历史数据都在这个文件夹里，删了就没了；想保留就先把它整个拷贝走备份。
+
+先找到 data 文件夹在哪：
+
+```bash
+# 推荐在删容器之前执行（输出就是 data 的完整路径，例如 /root/data）：
+docker inspect probedeck --format '{{range .Mounts}}{{.Source}}{{end}}'
+
+# 如果容器已经删了，用这条全盘搜也行：
+find / -name "api_secret.txt" 2>/dev/null
+```
+
+找到后删除（把路径换成上面查到的，例如 `/root/data`）：
+
+```bash
+rm -rf /root/data
+```
+
+> 💡 数据只存在宿主机这一个 `data` 文件夹里（容器内部没有独立存储）。想卸载得干干净净 = ① 删容器 + ② 删镜像 + ③ 删 data 文件夹，三个都做即彻底清空。
 
 ## 常见问题
 
@@ -382,8 +424,8 @@ docker rmi ghcr.io/gg949/probedeck:latest
 运行 `npm run build:frontend`（Docker 构建时会自动执行）。
 
 **Q：想换端口？**
-- 部署时：把一行命令里 `HOST_PORT` 后面的数字改成你要的（或在 `docker-compose.yml` / `.env` 里设置 `HOST_PORT`）
-- 部署后：改 `docker-compose.yml` 里 `ports` 的左侧数字，然后 `docker compose up -d` 重建容器
+- 部署时：**一行命令部署** → 把 `-p 17986:17986` 左侧的 17986 改成你要的端口；**compose 部署** → 改 `docker-compose.yml` 里 `${HOST_PORT:-17986}` 的默认值，或启动时执行 `HOST_PORT=你的端口 docker compose up -d`
+- 部署后：**compose 部署** → 改 `docker-compose.yml` 里 `ports` 的左侧数字，然后 `docker compose up -d` 重建容器；**docker run 部署** → 用「方式二」的升级命令重新跑一遍，只把 `-p` 左侧数字换成新端口
 - 换完记得同步调整反代（隧道/Caddy/Nginx）的目标端口
 
 **Q：上传了自定义网站图标（favicon）但不生效？**
