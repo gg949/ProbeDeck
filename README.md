@@ -24,18 +24,43 @@
 
 ## 快速开始
 
-### 方式一：一键部署（推荐）
-
-在服务器上**复制执行这一行**即可（自动下载、构建并启动，要求已安装 Docker）：
+### 第 0 步：安装 Docker（已装可跳过）
 
 ```bash
-git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck && docker compose up -d --build
+curl -fsSL https://get.docker.com | bash
 ```
 
-启动后访问：
+> Docker 官方一键安装脚本，支持 Ubuntu / Debian / CentOS / Rocky 等主流系统。
+> 装好后执行 `docker --version` 验证；国内服务器拉取镜像慢的话，可自行配置镜像加速器。
 
-- 监控面板：`http://你的服务器IP:17986/`
-- 管理面板：`http://你的服务器IP:17986/admin`
+### 方式一：docker compose 部署（可自定义配置）
+
+```bash
+# 1. 下载项目
+git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck
+
+# 2. （可选）按需修改 docker-compose.yml，例如：
+#    换端口   ports 里把默认的 17986 改成你想要的数字
+#    设密钥   通常不用管——API_SECRET 首次启动会自动随机生成；
+#             只有想固定密钥时（例如从旧部署迁移探针）才需手动填写
+#    地区识别 GEOIP_PROVIDER（默认 maxmind，可改 ipinfo / off）
+
+# 3. 构建并启动
+docker compose up -d --build
+```
+
+### 方式二：一行命令快速部署
+
+```bash
+git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck && HOST_PORT=17986 docker compose up -d --build
+```
+
+> 换端口：把命令里的 `17986` 改成你想要的数字即可（访问时就用你的端口）。
+
+### 启动后访问
+
+- 监控面板：`http://你的服务器IP:端口/`（默认 17986，改过端口就用你自己的）
+- 管理面板：`http://你的服务器IP:端口/admin`
   - 用户名：`admin`
   - 初始密码：**首次启动时自动生成**，执行这行查看：
     ```bash
@@ -45,7 +70,7 @@ git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck && docker compo
 
 > 想自定义密钥（比如从旧部署迁移探针）？在 `docker-compose.yml` 里设置 `API_SECRET` 即可，优先级高于自动生成。
 
-### 方式二：docker run
+### 备选：docker run
 
 ```bash
 docker build -t probedeck .
@@ -208,7 +233,9 @@ docker compose up -d --build
 运行 `npm run build:frontend`（Docker 构建时会自动执行）。
 
 **Q：想换端口？**
-改 `docker-compose.yml` 里 `ports` 的左侧（如 `"9000:17986"`），并同步调整反代目标。
+- 部署时：把一行命令里 `HOST_PORT` 后面的数字改成你要的（或在 `docker-compose.yml` / `.env` 里设置 `HOST_PORT`）
+- 部署后：改 `docker-compose.yml` 里 `ports` 的左侧数字，然后 `docker compose up -d` 重建容器
+- 换完记得同步调整反代（隧道/Caddy/Nginx）的目标端口
 
 **Q：探针一直显示离线？**
 检查：被控机能访问上报地址（`curl 地址/api/config`）、防火墙放行、HTTPS 证书有效、

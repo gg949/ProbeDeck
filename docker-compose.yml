@@ -6,7 +6,10 @@ services:
     container_name: probedeck
     restart: unless-stopped
     ports:
-      - "17986:17986"
+      # 左侧是宿主机端口（对外访问用），默认 17986。
+      # 换端口：把左边的 17986 改成你想要的数字即可，
+      # 或在启动时用环境变量：HOST_PORT=你的端口 docker compose up -d --build
+      - "${HOST_PORT:-17986}:17986"
     environment:
       # API_SECRET 可不设置：首次启动自动生成（写入 data/api_secret.txt 并打印在日志里），
       # 如需自定义（比如从旧部署迁移探针）再取消下面这行的注释并填写。
