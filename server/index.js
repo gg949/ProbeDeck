@@ -76,6 +76,7 @@ const env = {
   CORS_ALLOWED_ORIGINS: process.env.CORS_ALLOWED_ORIGINS || '',
   API_BASE: process.env.API_BASE || '',
   DEBUG: process.env.DEBUG || '',
+  HISTORY_RETENTION_DAYS: process.env.HISTORY_RETENTION_DAYS || '',
   TURNSTILE_SECRET_KEY: process.env.TURNSTILE_SECRET_KEY || '',
   // 绑定
   DB: createD1Database(path.join(DATA_DIR, 'monitor.db')),
@@ -97,6 +98,8 @@ const geoip = await createGeoIpService({
 // ── 4) 加载 Worker 业务代码（src/ 保持原样）────────────────────────────────
 const worker = (await import('../src/index.js')).default;
 const { initDatabase } = await import('../src/database/schema.js');
+const { loadSettings } = await import('../src/utils/settings.js');
+const { tryHandleCfMigrate } = await import('./cf-migrate.js');
 
 if (typeof worker?.fetch !== 'function') {
   console.error('❌ src/index.js 未导出 fetch 处理函数，请检查代码完整性。');
@@ -236,14 +239,68 @@ async function writeRawHttpResponse(socket, response) {
   socket.end();
 }
 
-// ── 9) HTTP 服务器 ─────────────────────────────────────────────────────────
+// ── 9) /favicon.ico：优先返回面板中自定义的网站图标（VPS 版增强）───────────
+// 背景：主题页面的站点 Logo 与浏览器标签图标都会请求 /favicon.ico，原版由
+// 静态文件兜底，导致在后台更换图标后页面 Logo 不更新。这里在静态文件之前
+// 拦截：设置了自定义图标（data URI / http 链接）就直接返回它，否则回退默认。
+function parseFaviconDataUri(value) {
+  const m = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(value);
+  if (!m) return null;
+  try {
+    const mime = m[1] || 'image/x-icon';
+    const buf = m[2]
+      ? Buffer.from(m[3] || '', 'base64')
+      : Buffer.from(decodeURIComponent(m[3] || ''), 'utf8');
+    return buf.length ? { mime, buf } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function tryServeCustomFavicon(request, env) {
+  try {
+    const url = new URL(request.url);
+    if (url.pathname !== '/favicon.ico') return null;
+    if (request.method !== 'GET' && request.method !== 'HEAD') return null;
+
+    const settings = await loadSettings(env.DB);
+    const favicon = String(settings?.favicon || '').trim();
+    if (!favicon) return null;
+
+    if (/^https?:\/\//i.test(favicon)) {
+      return new Response(null, { status: 302, headers: { Location: favicon } });
+    }
+    const parsed = parseFaviconDataUri(favicon);
+    if (!parsed) return null;
+
+    return new Response(request.method === 'HEAD' ? null : parsed.buf, {
+      status: 200,
+      headers: {
+        'Content-Type': parsed.mime,
+        'Content-Length': String(parsed.buf.length),
+        'Cache-Control': 'no-cache'
+      }
+    });
+  } catch (e) {
+    console.error('[server] 自定义图标处理失败，回退静态文件:', e?.message || e);
+    return null;
+  }
+}
+
+// ── 10) HTTP 服务器 ────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   try {
     const request = await toFetchRequest(req);
 
+    // /favicon.ico 优先返回面板中的自定义图标（VPS 版增强）
+    const faviconResponse = await tryServeCustomFavicon(request, env);
+
+    // /_pd/cf-migrate：从 Cloudflare 一键迁移（VPS 版专属功能）
+    const cfMigrateResponse = faviconResponse ? null : await tryHandleCfMigrate(request, env, DATA_DIR);
+
     // 静态资产优先（模拟 Cloudflare Workers Assets 的默认行为：
     // 命中 dist/ 中的文件直接返回，未命中才进入 Worker 逻辑）
-    const staticResponse = await env.ASSETS.tryServeStatic(request);
+    const staticResponse = faviconResponse || cfMigrateResponse || (await env.ASSETS.tryServeStatic(request));
     const response = staticResponse || (await worker.fetch(request, env, createCtx()));
 
     await writeFetchResponse(res, req, response);

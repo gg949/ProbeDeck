@@ -17,5 +17,6 @@ services:
       # 密钥不填自动随机生成；地区识别默认 maxmind（可改 ipinfo / off）
       # API_SECRET: "改成你自己的密钥"
       GEOIP_PROVIDER: "maxmind"
+      HISTORY_RETENTION_DAYS: "${HISTORY_RETENTION_DAYS:-14}"
     volumes:
       - ./data:/app/data

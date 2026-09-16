@@ -63,11 +63,50 @@
         </div>
       </div>
     </div>
+
+    <!-- 从 Cloudflare 一键迁移（仅 Docker/VPS 版支持，页面自动探测显示） -->
+    <div v-if="cfMigrateAvailable" class="settings-section">
+      <div class="section-title"><span>▸</span> {{ trans.cfMigrateTitle }}</div>
+      <p class="text-muted mb-2">{{ trans.cfMigrateDesc }}</p>
+
+      <div class="settings-grid">
+        <div class="form-group">
+          <label class="form-label">{{ trans.cfMigrateAccountId }}</label>
+          <input v-model="cfAccountId" type="text" class="form-input" placeholder="023e105f4ecef8ad9ca31a8372d0c353" :disabled="cfMigrating" autocomplete="off" spellcheck="false">
+          <p class="text-muted mt-1 text-sm">{{ trans.cfMigrateAccountIdTip }}</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">{{ trans.cfMigrateDatabaseId }}</label>
+          <input v-model="cfDatabaseId" type="text" class="form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" :disabled="cfMigrating" autocomplete="off" spellcheck="false">
+          <p class="text-muted mt-1 text-sm">{{ trans.cfMigrateDatabaseIdTip }}</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">{{ trans.cfMigrateToken }}</label>
+          <input v-model="cfApiToken" type="password" class="form-input" placeholder="••••••••••••" :disabled="cfMigrating" autocomplete="off" spellcheck="false">
+          <p class="text-muted mt-1 text-sm">{{ trans.cfMigrateTokenTip }}</p>
+        </div>
+      </div>
+
+      <button @click="handleCfMigrate" class="btn btn-primary btn-lg" :disabled="cfMigrating || !cfAccountId || !cfDatabaseId || !cfApiToken">
+        {{ cfMigrating ? '⏳ …' : '☁️ ' + trans.cfMigrateStart }}
+      </button>
+
+      <div v-if="cfMigrating || cfMigrateStatus" class="mt-3">
+        <div v-if="cfMigrating" class="warning-box">{{ trans.cfMigrateRunning }}</div>
+        <div v-else :class="cfMigrateStatus.ok ? 'warning-box' : 'danger-box'">
+          <span :style="{ color: cfMigrateStatus.ok ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: '600' }">
+            {{ cfMigrateStatus.ok ? '✅' : '❌' }} {{ cfMigrateStatus.text }}
+          </span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { adminApi } from '../../../utils/api'
 
 const props = defineProps({
@@ -83,6 +122,99 @@ const fileInput = ref(null)
 const exporting = ref(false)
 const importing = ref(false)
 const importResult = ref(null)
+
+// ── 从 Cloudflare 一键迁移（Docker/VPS 版专属）──────────────
+const cfMigrateAvailable = ref(false)
+const cfAccountId = ref('')
+const cfDatabaseId = ref('')
+const cfApiToken = ref('')
+const cfMigrating = ref(false)
+const cfMigrateStatus = ref(null) // { ok: boolean, text: string }
+
+// 探测后端是否支持该功能（Cloudflare Workers 版没有此端点）
+onMounted(async () => {
+  try {
+    const res = await fetch('/_pd/cf-migrate', { headers: { Accept: 'application/json' } })
+    if (!res.ok) return
+    const data = await res.json().catch(() => null)
+    cfMigrateAvailable.value = !!(data && data.available === true)
+  } catch (_) {}
+})
+
+const waitForPanelRestart = async () => {
+  // 迁移成功后服务端会自动重启，轮询探测直到恢复再刷新页面
+  for (let i = 0; i < 40; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    try {
+      const res = await fetch('/_pd/cf-migrate', { cache: 'no-store' })
+      if (res.ok) {
+        window.location.reload()
+        return
+      }
+    } catch (_) {}
+  }
+  window.location.reload()
+}
+
+const handleCfMigrate = async () => {
+  const accountId = cfAccountId.value.trim()
+  const databaseId = cfDatabaseId.value.trim()
+  const apiToken = cfApiToken.value.trim()
+
+  if (!accountId || !databaseId || !apiToken) {
+    cfMigrateStatus.value = { ok: false, text: props.trans.cfMigrateMissingFields }
+    return
+  }
+  if (!window.confirm(props.trans.cfMigrateConfirm)) return
+
+  cfMigrating.value = true
+  cfMigrateStatus.value = null
+
+  try {
+    let token = ''
+    try { token = localStorage.getItem('jwt_token') || '' } catch (_) {}
+
+    const res = await fetch('/_pd/cf-migrate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ accountId, databaseId, apiToken })
+    })
+
+    let data = null
+    try { data = await res.json() } catch (_) {}
+
+    if (res.ok && data && data.success) {
+      cfApiToken.value = ''
+      cfMigrateStatus.value = {
+        ok: true,
+        text: String(props.trans.cfMigrateSuccess).replace('{n}', String(data.tables || ''))
+      }
+      waitForPanelRestart()
+    } else {
+      const err = data && data.error
+      let msg = ''
+      if (err === 'unauthorized') msg = props.trans.cfMigrateUnauthorized
+      else if (err === 'missingFields') msg = props.trans.cfMigrateMissingFields
+      else if (data && data.message) msg = data.message
+      else if (err) msg = err
+      else msg = `HTTP ${res.status}`
+      cfMigrateStatus.value = {
+        ok: false,
+        text: String(props.trans.cfMigrateFailed).replace('{msg}', String(msg))
+      }
+    }
+  } catch (e) {
+    cfMigrateStatus.value = {
+      ok: false,
+      text: String(props.trans.cfMigrateFailed).replace('{msg}', e?.message || 'network error')
+    }
+  } finally {
+    cfMigrating.value = false
+  }
+}
 
 const handleExport = async () => {
   exporting.value = true

@@ -139,11 +139,26 @@ ARM 服务器把 `amd64` 换成 `arm64`。Debian/Ubuntu 也可用官方 apt 源�
 
 ### 方案二：Caddy（自动申请证书，一行搞定）
 
+**尚未安装 Caddy？** Debian / Ubuntu 先执行（安装包自带开机自启）：
+
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install -y caddy
+```
+
+装完 Caddy 会自动启动并设为开机自启（不放心可执行一次 `sudo systemctl enable --now caddy` 确认）。
+
+然后二选一：
+
+**方式 A（临时试一下）**——前台运行，Ctrl+C 即停：
+
 ```bash
 caddy reverse-proxy --from monitor.example.com --to 127.0.0.1:17986
 ```
 
-或写入 Caddyfile（推荐持久化）：
+**方式 B（推荐，持久化 + 自启）**——写入 Caddyfile 后重启服务：
 
 ```
 monitor.example.com {
@@ -151,19 +166,32 @@ monitor.example.com {
 }
 ```
 
+> 写入 `/etc/caddy/Caddyfile` 后执行 `sudo systemctl restart caddy`。
+
 Caddy 会自动申请并续期 HTTPS 证书，WebSocket 自动透传，无需额外配置。
 
 > ⚠️ 示例里的 `monitor.example.com` 要**换成你自己的域名**再执行。
 
 ### 方案三：Nginx（一行式 server 配置）
 
+**尚未安装 Nginx？** 先安装（装完自动启动并开机自启）：
+
+```bash
+# Debian / Ubuntu
+sudo apt install -y nginx
+# CentOS / RHEL 系
+sudo yum install -y nginx && sudo systemctl enable --now nginx
+```
+
+然后写入配置：
+
 ```nginx
 server { listen 80; server_name monitor.example.com; location / { proxy_pass http://127.0.0.1:17986; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; } }
 ```
 
 > ⚠️ 示例里的 `monitor.example.com` 要**换成你自己的域名**。
-> 写入 `/etc/nginx/conf.d/monitor.conf` 后 `nginx -s reload`。
-> 需要 HTTPS 可配合 `certbot --nginx` 一键签发证书。
+> 写入 `/etc/nginx/conf.d/monitor.conf` 后执行 `sudo nginx -t && sudo systemctl reload nginx`（先测语法再热加载）。
+> 需要 HTTPS 可配合 `sudo apt install -y certbot python3-certbot-nginx && sudo certbot --nginx` 一键签发证书。
 > 注意保留 `Upgrade` / `Connection` / `X-Forwarded-*` 这几行——WebSocket 和客户端 IP 识别都依赖它们。
 
 ## 地区自动识别（GeoIP）
@@ -190,6 +218,11 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 **不影响主题**：地区识别的结果写入标准的 `region` 字段（与 CF 版完全相同的字段），
 前端和第三方主题读取方式不变，无需任何适配。
 
+## 上报间隔与实时性
+
+- **HTTP 模式**（默认）：探针每隔一段时间上报一次；本移植版已解除原版的 Cloudflare 限制，最小可设 **10 秒**（管理面板 → 编辑服务器 → 上报间隔）。
+- **WSS 模式**（准实时）：设置里开启「Agent WSS 上报」并勾选全部时段后，探针与面板保持 WebSocket 长连接，数据 **1~5 秒**推送一次（编辑服务器 → WSS 上报间隔）。原版因 Cloudflare 额度限制做了时段选择，VPS 部署无此限制，**24 小时全开即可**。
+
 ## 环境变量
 
 全部可选——不配置任何变量即可启动。
@@ -199,6 +232,7 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 | `API_SECRET` | 探针上报密钥 + 管理面板初始密码。不设置则首次启动自动生成 | 自动生成 |
 | `PORT` | 容器内监听端口 | `17986` |
 | `API_USER_NAME` | 管理面板用户名 | `admin` |
+| `HISTORY_RETENTION_DAYS` | 历史数据保留天数（30 = 保留约一个月） | `14` |
 | `GEOIP_PROVIDER` | 地区识别：`maxmind` / `ipinfo` / `off` | `maxmind` |
 | `GEOIP_MMDB_PATH` | 自定义 GeoLite2 数据库路径 | 空 |
 | `IPINFO_TOKEN` | ipinfo.io token（可选） | 空 |
@@ -216,7 +250,8 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 | `data/do-storage.json` | 实时广播模块的少量运行状态 |
 
 备份：停止容器后复制整个 `data/` 目录；恢复：放回后启动。
-历史数据与原版一致：**每周一轮表，只保留约两周**，数据库体积很小。
+历史数据保留时长**可自定义**：默认约两周（`HISTORY_RETENTION_DAYS=14`），改成 `30` 即保留约一个月；
+内部按"轮换周期 = 保留天数的一半"自动清理旧数据，数据库体积保持很小。
 
 ## 从源码直接运行（不用 Docker）
 
@@ -235,8 +270,70 @@ npm start          # 默认 17986 端口；API_SECRET 同样会自动生成
 | 地区识别 | 已用 GeoIP 复刻（见上节），行为与原版基本一致 |
 | CF 用量统计 | 管理面板中的 Cloudflare 额度查询卡片已移除（VPS 部署无此概念） |
 | Turnstile 人机验证 | CF 服务，默认关闭（建议保持关闭）；如需启用需服务器能访问 challenges.cloudflare.com |
-| 版本更新提示 | 面板里的"检查新版"提示的是原项目版本号，仅作参考；升级执行 `docker compose pull && docker compose up -d` |
-| 其他 | 定时任务按 UTC（与原版一致）、每周表轮换、离线检测、通知渠道逻辑 100% 保留 |
+| 版本更新提示 | 面板里的"检查新版"读取的是本仓库的 version.json（发新版时同步更新它即可提示最新版）；升级执行 `docker compose pull && docker compose up -d` |
+| 其他 | 定时任务按 UTC（与原版一致）、周期表轮换（保留时长可自定义）、离线检测、通知渠道逻辑 100% 保留 |
+
+## 从 Cloudflare 原版迁移数据
+
+原版部署在 Cloudflare（Workers + D1）上，数据**可以完整迁移**到本移植版——
+D1 本身就是 SQLite，表结构与本项目完全相同：服务器列表、历史数据、流量统计、
+面板设置（含登录密码、通知配置、主题设置）会**全部保留**。
+
+### 方式一（推荐）：面板一键迁移，零命令行
+
+ProbeDeck 的「数据库管理」页面内置了「**从 Cloudflare 一键迁移**」：
+填入三项信息即可自动把全部数据拉取过来：
+
+- **Cloudflare 账号 ID**：CF 控制台首页右侧栏
+- **D1 数据库 ID**：Workers 和 Pages → D1 → 选中你的数据库（UUID 格式）
+- **API Token**：My Profile → API Tokens → 创建，权限选 **D1 → 读取** 即可
+
+> 迁移会自动备份现有数据（失败自动还原），Token 仅单次使用、不会被保存。
+> 原版面板会在导出期间短暂不可用（几十秒，正常现象）。
+
+### 方式二：手动导出 / 导入（适合想全程自己掌控的用户）
+
+**① 导出 D1 数据**——用**任意一台电脑**操作即可（数据都在 Cloudflare 云端，与你当初用哪台电脑部署的无关；
+Windows / Mac / Linux 都行，只要登录你当初部署原版的 Cloudflare 账号）：
+
+```bash
+# 没装过 Node.js 的话，先去 https://nodejs.org 下载 LTS 版安装
+# 然后打开终端（Windows 用 PowerShell），逐条执行：
+
+npx wrangler login     # 会弹出浏览器，登录你的 Cloudflare 账号
+npx wrangler d1 list   # 查看数据库名（原版默认叫 server-monitor-db）
+npx wrangler d1 export server-monitor-db --remote --output=backup.sql
+```
+
+> 最后一条命令里的 `server-monitor-db` 换成 `d1 list` 里看到的实际数据库名；
+> 执行成功后会在当前目录生成 `backup.sql`，把它传到 VPS 继续下一步。
+
+**② 把 backup.sql 传到 VPS，导入到 ProbeDeck**：
+
+```bash
+# 安装 sqlite3 命令行工具（没装过的话）
+sudo apt install -y sqlite3
+
+# 停止面板容器（导入期间必须停止，避免文件锁）
+cd 你的部署目录 && docker compose down
+
+# 用导出文件建一个新库（当前库如果已有数据，先改名备份、别删）
+mv data/monitor.db data/monitor.db.bak 2>/dev/null
+sqlite3 data/monitor.db < backup.sql
+
+# 重新启动
+docker compose up -d
+```
+
+**③ 完成**：打开面板，用**原来的密码登录**——改过密码的话原密码直接可用；
+从未改过密码的，登录密码 = 你原 CF 版配置的 API_SECRET。
+
+**探针（被控机）怎么处理？** 因为面板地址变了（CF 域名 → 你的新域名），
+每台被控机需要更新上报地址——最省事的办法：管理面板里对每台服务器点「安装/更新」，
+把生成的命令复制到对应机器上执行一遍即可（1 分钟一台）。**历史数据都在服务端，重装探针不丢数据**。
+
+**想让探针保留原 API_SECRET？** 在 `docker-compose.yml` 里加一行
+`API_SECRET: 你原来的密钥` 即可；不设置也没关系（面板自动生成新密钥，重装探针时自动带上）。
 
 ## 更新上游
 
@@ -288,6 +385,10 @@ docker rmi ghcr.io/gg949/probedeck:latest
 - 部署时：把一行命令里 `HOST_PORT` 后面的数字改成你要的（或在 `docker-compose.yml` / `.env` 里设置 `HOST_PORT`）
 - 部署后：改 `docker-compose.yml` 里 `ports` 的左侧数字，然后 `docker compose up -d` 重建容器
 - 换完记得同步调整反代（隧道/Caddy/Nginx）的目标端口
+
+**Q：上传了自定义网站图标（favicon）但不生效？**
+① 上传图片后要**点页面底部的「保存设置」**才真正保存；② 浏览器对 favicon 的缓存非常顽固——
+用 `Ctrl+F5` 强制刷新、或换无痕窗口/换浏览器验证；手机端清一下浏览器缓存再看。
 
 **Q：探针一直显示离线？**
 检查：被控机能访问上报地址（`curl 地址/api/config`）、防火墙放行、HTTPS 证书有效、

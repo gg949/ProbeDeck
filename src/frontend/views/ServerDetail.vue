@@ -514,6 +514,8 @@ const timeOptions = computed(() => {
     { hours: 48, label: '2d' },
     { hours: 96, label: '4d' },
     { hours: 168, label: '7d' },
+    { hours: 336, label: '14d' },
+    { hours: 720, label: '30d' },
   ]
 })
 

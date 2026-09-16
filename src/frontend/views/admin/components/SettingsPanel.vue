@@ -402,7 +402,7 @@
               v-model="settings.notification_template"
               class="form-textarea"
               rows="5"
-              placeholder="{{emoji}}【CF Server Monitor】{{event}}\n\n{{message}}\n\n{{time}}"
+              placeholder="{{emoji}}【ProbeDeck】{{event}}\n\n{{message}}\n\n{{time}}"
             ></textarea>
           </div>
         </div>

@@ -17,6 +17,8 @@ services:
 
       # 地区自动识别：maxmind（默认，本地 GeoLite2 数据库）/ ipinfo（在线）/ off（关闭）
       GEOIP_PROVIDER: "maxmind"
+      # 历史数据保留天数（默认 14；30 = 保留约一个月；越大越占磁盘）
+      HISTORY_RETENTION_DAYS: "${HISTORY_RETENTION_DAYS:-14}"
       # 自定义 IP 数据库路径（可选，挂载自己的 .mmdb 文件；放在 ./data/geoip/ 也会被自动识别）
       # GEOIP_MMDB_PATH: "/app/data/geoip/custom.mmdb"
       # ipinfo.io token（可选，GEOIP_PROVIDER=ipinfo 时提高额度）

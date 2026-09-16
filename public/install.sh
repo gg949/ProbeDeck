@@ -541,7 +541,7 @@ apply_remote_config() {
     log_debug "Remote config md5: current=${CONFIG_MD5:-none} remote=${new_md5}"
 
     case "$new_collect" in 0|1|2|5|10) ;; *) log_warn_debug "Remote config rejected: invalid collect_interval=${new_collect:-}"; return 1 ;; esac
-    case "$new_report" in 30|60|120|180) ;; *) log_warn_debug "Remote config rejected: invalid report_interval=${new_report:-}"; return 1 ;; esac
+    case "$new_report" in 10|15|20|30|60|120|180) ;; *) log_warn_debug "Remote config rejected: invalid report_interval=${new_report:-}"; return 1 ;; esac
     case "$new_reset" in 0|[1-9]|1[0-9]|2[0-9]|30|31) ;; *) log_warn_debug "Remote config rejected: invalid reset_day=${new_reset:-}"; return 1 ;; esac
     case "$new_update" in ''|0|1) ;; *) log_warn_debug "Remote config rejected: invalid update=${new_update}"; return 1 ;; esac
     if [ "$new_schema" != "3" ]; then
@@ -1149,8 +1149,8 @@ run_network_worker() {
     local last_probe=0
     local probe_interval="${REPORT_INTERVAL:-60}"
     case "$probe_interval" in ''|*[!0-9]*) probe_interval=60 ;; esac
-    [ "$probe_interval" -lt 30 ] && probe_interval=30
-    [ "$probe_interval" -gt 60 ] && probe_interval=60
+    [ "$probe_interval" -lt 10 ] && probe_interval=10
+    [ "$probe_interval" -gt 180 ] && probe_interval=180
     
     while true; do
         local now; now=$(date +%s)
@@ -1162,7 +1162,7 @@ run_network_worker() {
             last_ip="$now"
         fi
         
-        # 统一探测：跟随上报间隔并限制在 30-60 秒，一次探测同时计算延迟和丢包率
+        # 统一探测：跟随上报间隔并限制在 10-180 秒，一次探测同时计算延迟和丢包率
         if [ $((now - last_probe)) -ge "$probe_interval" ] || [ "$last_probe" -eq 0 ]; then
             refresh_probe_async
             last_probe="$now"

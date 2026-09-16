@@ -213,7 +213,7 @@ export async function getMetricsHistory(
 ) {
   const now = Date.now();
   const cacheDuration = getCacheDuration(hours);
-  const queryHours = Math.min(hours, 168);
+  const queryHours = Math.min(hours, 8760); // 安全兜底（最长一年）；实际上限由入口按 HISTORY_RETENTION_DAYS 控制
   const configuredLongHistoryPoints = queryHours > 1
     ? Number(normalizeLongHistoryPoints(longHistoryPoints))
     : null;
@@ -231,11 +231,18 @@ export async function getMetricsHistory(
   const queryStart = Math.max(cutoff, historyInfo.startTimestamp);
 
   // 判断是否需要查询 metrics_history_old 表
-  // 如果实际查询起点早于本周日 00:00 UTC（表轮换时间），说明需要查旧表
-  const nowDate = new Date(now);
-  const day = nowDate.getUTCDay();
-  const thisSunday = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate() - day));
-  const needOldTable = queryStart < thisSunday.getTime();
+  // 如果实际查询起点早于上次表轮换时间（settings.last_rotation_at），说明需要查旧表
+  // 兼容旧版：未记录轮换时间时，按"本周日 00:00 UTC"边界判断（原版行为）
+  const lastRotationRaw = await getLastRotationAt(db);
+  let rotationBoundary;
+  if (lastRotationRaw > 0) {
+    rotationBoundary = lastRotationRaw;
+  } else {
+    const nowDate = new Date(now);
+    const day = nowDate.getUTCDay();
+    rotationBoundary = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate() - day);
+  }
+  const needOldTable = queryStart < rotationBoundary;
   
   const oldTableExists = needOldTable && !!await db.prepare(
     `SELECT name FROM sqlite_master WHERE type='table' AND name='metrics_history_old'`
@@ -315,7 +322,7 @@ export async function getMetricsHistory(
       intervalMs,
       idPrefix,
       oldTableExists,
-      tableBoundary: thisSunday.getTime()
+      tableBoundary: rotationBoundary
     });
 
     debug('[History] SPARSE ID SAMPLING:', sparseQuery.bindValues.length, 'bind values');
@@ -499,10 +506,16 @@ export async function getDashboardLatencyHistory(db, servers, options = {}) {
   const cutoff = now - DASHBOARD_LATENCY_WINDOW_HOURS * 60 * 60 * 1000;
   const columns = DASHBOARD_LATENCY_COLUMNS.join(', ');
 
-  const nowDate = new Date(now);
-  const day = nowDate.getUTCDay();
-  const thisSunday = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate() - day));
-  const oldTableExists = cutoff < thisSunday.getTime() && !!await db.prepare(
+  const lastRotationRaw = await getLastRotationAt(db);
+  let rotationBoundary;
+  if (lastRotationRaw > 0) {
+    rotationBoundary = lastRotationRaw;
+  } else {
+    const nowDate = new Date(now);
+    const day = nowDate.getUTCDay();
+    rotationBoundary = Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate() - day);
+  }
+  const oldTableExists = cutoff < rotationBoundary && !!await db.prepare(
     `SELECT name FROM sqlite_master WHERE type='table' AND name='metrics_history_old'`
   ).first();
 
@@ -534,7 +547,7 @@ export async function getDashboardLatencyHistory(db, servers, options = {}) {
           intervalMs,
           idPrefix,
           oldTableExists,
-          tableBoundary: thisSunday.getTime(),
+          tableBoundary: rotationBoundary,
           sampleOrder: 'DESC'
         });
         return db.prepare(sparseQuery.sql).bind(...sparseQuery.bindValues).all();
@@ -575,6 +588,23 @@ export async function getDashboardLatencyHistory(db, servers, options = {}) {
 }
 
 
+// 读取上次表轮换时间（独立 settings 键；未记录时返回 0，调用方按旧版"周日边界"逻辑回退）
+export async function getLastRotationAt(db) {
+  try {
+    const row = await db.prepare("SELECT value FROM settings WHERE key = 'last_rotation_at'").first();
+    const ts = row ? Number(row.value) : 0;
+    return Number.isFinite(ts) && ts > 0 ? ts : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+async function setLastRotationAt(db, ts) {
+  await db.prepare(
+    "INSERT INTO settings (key, value) VALUES ('last_rotation_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).bind(String(ts)).run();
+}
+
 export async function weeklyCleanup(db) {
   try {
     debug('[Cleanup] 开始执行表轮换操作...');
@@ -609,6 +639,10 @@ export async function weeklyCleanup(db) {
     await initDatabase(db);
 
     debug('[Cleanup] 已创建新的 metrics_history 表');
+    
+    // 4. 记录本次轮换时间（供保留周期触发判断与旧表查询边界使用）
+    await setLastRotationAt(db, Date.now());
+    debug('[Cleanup] 已记录本次轮换时间');
     
     return {
       success: true,

@@ -183,7 +183,7 @@ const props = defineProps({
 
 const emit = defineEmits(['theme-applied', 'theme-options-applied', 'alert-message'])
 
-const THEME_STORE_URL = 'https://raw.githubusercontent.com/huilang-me/CFSM-Theme-Store/refs/heads/main/themes.json'
+const THEME_STORE_URL = 'https://raw.githubusercontent.com/gg949/ProbeDeck/refs/heads/main/themes.json'
 const THEME_STORE_FETCH_TIMEOUT_MS = 8000
 const COMMIT_LIMIT = 10
 const GITHUB_FETCH_TIMEOUT_MS = 8000

@@ -28,7 +28,7 @@ export async function handleTheme() {
 
   try {
     const res = await fetch(THEME_STORE_URL, {
-      headers: { 'User-Agent': 'CFSM-Theme-Store' }
+      headers: { 'User-Agent': 'ProbeDeck-Theme-Store' }
     })
 
     if (!res.ok) {

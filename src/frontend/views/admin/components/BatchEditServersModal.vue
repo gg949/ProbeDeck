@@ -86,6 +86,9 @@
           </BatchEditField>
           <BatchEditField :enabled="enabled.report_interval" :label="trans.reportInterval" @toggle="toggleField('report_interval', $event)">
             <select v-model="form.report_interval" class="form-select" :disabled="!enabled.report_interval">
+              <option :value="10">10</option>
+              <option :value="15">15</option>
+              <option :value="20">20</option>
               <option :value="30">30</option>
               <option :value="60">60</option>
               <option :value="120">120</option>

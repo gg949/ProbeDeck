@@ -1,4 +1,4 @@
-import { initDatabase, weeklyCleanup, getMetricsHistory, clearHistory } from './database/schema.js';
+import { initDatabase, weeklyCleanup, getMetricsHistory, clearHistory, getLastRotationAt } from './database/schema.js';
 import { checkOfflineNodes, checkExpiringServers, checkResourceAlerts, checkTrafficReports } from './services/notification.js';
 import { updateDatabase } from './database/updateDatabase.js';
 import { handleAdminAPI } from './handlers/admin.js';
@@ -6,7 +6,7 @@ import { serveFrontend } from './handlers/frontend.js';
 import { handleUpdate, handleWebSocketUpgrade, handleUpdateWebSocketUpgrade } from './handlers/update.js';
 import { handleServerAPI, handleServersAPI } from './handlers/dashboard.js';
 import { handleTheme } from './handlers/theme.js';
-import { isValidThemeOptions, loadSettings, loadSiteSettings, loadAppearanceOptions, normalizeFrontendWsTimeoutMinutes, normalizeLongHistoryPoints, saveThemeOptions, setDebug, debug } from './utils/settings.js';
+import { isValidThemeOptions, loadSettings, loadSiteSettings, loadAppearanceOptions, normalizeFrontendWsTimeoutMinutes, normalizeLongHistoryPoints, saveThemeOptions, setDebug, debug, getSettingByKey } from './utils/settings.js';
 import { omitNullLossProbeFields } from './handlers/dashboard.js';
 import { checkAuth, simpleAuthResponse } from './middleware/auth.js';
 import { getServerDetail, getMetricsHistoryCache, setMetricsHistoryCache, getCacheDuration } from './utils/cache.js';
@@ -125,8 +125,10 @@ async function fetchHistoryData(env, request, id, hours, columns, sys = null) {
   const server = await getServerDetail(env.DB, id, isLoggedIn);
   if (!server) return createNotFoundResponse();
   
-  // 最多查询7天数据
-  const clampedHours = Math.min(hours, 168);
+  // 查询上限：由 HISTORY_RETENTION_DAYS 控制（默认 14 天；下限 7 天，保持与原版一致）
+  const retentionDays = Number(env.HISTORY_RETENTION_DAYS) || 14;
+  const maxHistoryHours = Math.max(168, retentionDays * 24);
+  const clampedHours = Math.min(hours, maxHistoryHours);
   const cacheDuration = getCacheDuration(clampedHours);
   const longHistoryPoints = clampedHours > 1
     ? Number(normalizeLongHistoryPoints(sys.long_history_points))
@@ -467,8 +469,10 @@ export default {
     if (cron === '*/1 * * * *') {
       // Traffic reports must still run during the Sunday table-rotation window.
       await checkTrafficReports(env.DB, { scheduled: true, staggered: true, now: now.getTime() });
-      if (day === 0 && hour === 0 && minute < 5) {
-        debug('[Cron] 每周日0:00-0:05表轮换期间，跳过离线节点检测');
+      const lastRotationTick = await getLastRotationAt(env.DB);
+      const inRotationWindow = lastRotationTick > 0 && (now.getTime() - lastRotationTick) < 5 * 60 * 1000;
+      if (inRotationWindow) {
+        debug('[Cron] 表轮换窗口期内，跳过离线节点检测');
       } else {
         debug('[Cron] 开始执行离线节点检测');
         await checkOfflineNodes(env.DB);
@@ -478,10 +482,18 @@ export default {
         debug('[Cron] 资源负载告警检测完成');
       }
     } else if (cron === '0 * * * *') {
-      if (day === 0 && hour === 0) {
-        debug('[Cron] 开始执行每周数据清理任务（表轮换）');
+      // 保留时长可配置（HISTORY_RETENTION_DAYS，默认 14 天）；轮换周期 = 保留天数的一半
+      const retentionDays = Number(env.HISTORY_RETENTION_DAYS) || 14;
+      const cycleDays = Math.max(1, Math.round(retentionDays / 2));
+      const cycleMs = cycleDays * 24 * 60 * 60 * 1000;
+      const lastRotationRaw = await getLastRotationAt(env.DB);
+      const rotationBaseline = lastRotationRaw > 0
+        ? lastRotationRaw
+        : Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - day);
+      if (now.getTime() - rotationBaseline >= cycleMs) {
+        debug(`[Cron] 开始执行数据清理任务（表轮换），保留约 ${retentionDays} 天`);
         await weeklyCleanup(env.DB);
-        debug('[Cron] 每周数据清理任务完成');
+        debug('[Cron] 数据清理任务完成');
       }
       debug('[Cron] 检查是否到达服务器到期检测时间');
       await checkExpiringServers(env.DB, { scheduled: true, now: now.getTime() });
