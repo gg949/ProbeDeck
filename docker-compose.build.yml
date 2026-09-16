@@ -1,0 +1,21 @@
+# ProbeDeck — 源码构建版（需要先克隆源码，在源码目录内使用）
+#
+#   git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck
+#   docker compose -f docker-compose.build.yml up -d --build
+#
+# 普通部署请直接用 docker-compose.yml（拉取现成镜像，无需源码）。
+services:
+  probedeck:
+    build: .
+    image: probedeck:local
+    container_name: probedeck
+    restart: unless-stopped
+    ports:
+      # 左侧是宿主机端口，换端口把它改成你想要的数字
+      - "${HOST_PORT:-17986}:17986"
+    environment:
+      # 密钥不填自动随机生成；地区识别默认 maxmind（可改 ipinfo / off）
+      # API_SECRET: "改成你自己的密钥"
+      GEOIP_PROVIDER: "maxmind"
+    volumes:
+      - ./data:/app/data

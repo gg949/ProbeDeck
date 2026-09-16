@@ -33,29 +33,53 @@ curl -fsSL https://get.docker.com | bash
 > Docker 官方一键安装脚本，支持 Ubuntu / Debian / CentOS / Rocky 等主流系统。
 > 装好后执行 `docker --version` 验证；国内服务器拉取镜像慢的话，可自行配置镜像加速器。
 
-### 方式一：docker compose 部署（可自定义配置）
+### 方式一：docker compose 部署（推荐）
 
-```bash
-# 1. 下载项目
-git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck
+**1. 新建 `docker-compose.yml`**，把下面内容整段复制进去（不用下载任何其他文件）：
 
-# 2. （可选）按需修改 docker-compose.yml，例如：
-#    换端口   ports 里把默认的 17986 改成你想要的数字
-#    设密钥   通常不用管——API_SECRET 首次启动会自动随机生成；
-#             只有想固定密钥时（例如从旧部署迁移探针）才需手动填写
-#    地区识别 GEOIP_PROVIDER（默认 maxmind，可改 ipinfo / off）
+```yaml
+services:
+  probedeck:
+    image: ghcr.io/gg949/probedeck:latest
+    container_name: probedeck
+    restart: unless-stopped
+    ports:
+      # 左侧是宿主机端口（对外访问用），默认 17986。
+      # 换端口：把左边的 17986 改成你想要的数字即可，
+      # 或在启动时用环境变量：HOST_PORT=你的端口 docker compose up -d
+      - "${HOST_PORT:-17986}:17986"
+    environment:
+      # API_SECRET 可不设置：首次启动自动生成（写入 data/api_secret.txt 并打印在日志里），
+      # 如需自定义（比如从旧部署迁移探针）再取消下面这行的注释并填写。
+      # API_SECRET: "改成你自己的密钥"
 
-# 3. 构建并启动
-docker compose up -d --build
+      # 地区自动识别：maxmind（默认，本地 GeoLite2 数据库）/ ipinfo（在线）/ off（关闭）
+      GEOIP_PROVIDER: "maxmind"
+    volumes:
+      # SQLite 数据库、运行数据与自动下载的 GeoIP 库（备份/迁移只需保留该目录）
+      - ./data:/app/data
 ```
 
-### 方式二：一行命令快速部署
+**2. 启动：**
 
 ```bash
-git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck && HOST_PORT=17986 docker compose up -d --build
+docker compose up -d
 ```
 
-> 换端口：把命令里的 `17986` 改成你想要的数字即可（访问时就用你的端口）。
+**3. 以后升级版本：**
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+### 方式二：一行命令（docker run）
+
+```bash
+docker run -d --name probedeck --restart unless-stopped -p 17986:17986 -v ./data:/app/data ghcr.io/gg949/probedeck:latest
+```
+
+> `17986:17986` 左边是宿主机端口，换端口改左边的数字即可；
+> `./data:/app/data` 是数据目录，在你希望存放数据的位置执行即可（会自动创建 `data` 文件夹）。
 
 ### 启动后访问
 
@@ -70,17 +94,13 @@ git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck && HOST_PORT=17
 
 > 想自定义密钥（比如从旧部署迁移探针）？在 `docker-compose.yml` 里设置 `API_SECRET` 即可，优先级高于自动生成。
 
-### 备选：docker run
+### 想从源码构建？（可选）
+
+镜像已由本仓库通过 GitHub Actions 自动构建发布到 `ghcr.io/gg949/probedeck`，**普通部署不需要源码**。想自己构建或用最新未发布的代码：
 
 ```bash
-docker build -t probedeck .
-
-docker run -d \
-  --name probedeck \
-  --restart unless-stopped \
-  -p 17986:17986 \
-  -v $(pwd)/data:/app/data \
-  probedeck
+git clone https://github.com/gg949/ProbeDeck.git && cd ProbeDeck
+docker compose -f docker-compose.build.yml up -d --build
 ```
 
 ### 添加探针（与原版完全一致）
@@ -215,16 +235,17 @@ npm start          # 默认 17986 端口；API_SECRET 同样会自动生成
 | 地区识别 | 已用 GeoIP 复刻（见上节），行为与原版基本一致 |
 | CF 用量统计 | 管理面板中的 Cloudflare 额度查询卡片已移除（VPS 部署无此概念） |
 | Turnstile 人机验证 | CF 服务，默认关闭（建议保持关闭）；如需启用需服务器能访问 challenges.cloudflare.com |
-| 版本更新提示 | 面板里的"检查新版"提示的是原项目版本号，仅作参考；升级请重新构建本镜像 |
+| 版本更新提示 | 面板里的"检查新版"提示的是原项目版本号，仅作参考；升级执行 `docker compose pull && docker compose up -d` |
 | 其他 | 定时任务按 UTC（与原版一致）、每周表轮换、离线检测、通知渠道逻辑 100% 保留 |
 
 ## 更新上游
 
 本移植版相对上游只新增了 `server/`（适配层）与 Docker 相关文件，`src/`、`public/`、
-`scripts/` 与上游保持一致。同步上游更新时，覆盖这几个目录后重新构建即可：
+`scripts/` 与上游保持一致。同步上游更新时，覆盖这几个目录后推送到本仓库即可——
+GitHub Actions 会自动重新构建并发布新镜像；本地从源码构建则执行：
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.build.yml up -d --build
 ```
 
 ## 常见问题
