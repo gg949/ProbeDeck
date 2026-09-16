@@ -1,8 +1,12 @@
 # 自动构建并发布 Docker 镜像到 GitHub Container Registry (GHCR)
 #
 # • 推送到 main 分支：构建并推送 latest + sha 标签
-# • 推送版本标签（如 v2.8.6）：构建并推送对应版本标签（v2.8.6）+ latest
-# • 也可以在仓库 Actions 页面手动触发
+# • 推送版本标签（如 v2.8.7）：构建并推送对应版本标签
+# • 手动触发（推荐流程）：
+#     发布新版时 → Actions → "Build and publish Docker image" → Run workflow →
+#     version 填写与 Release 相同的版本号（如 v2.8.7）→ 运行
+#   （说明：Create Release 工作流自动推送的 tag 不会触发本工作流，
+#    这是 GitHub 的防递归限制，因此用手动触发补版本标签）
 # • 镜像地址：ghcr.io/<仓库所有者>/probedeck:<版本号 | latest>
 # • 首次发布后如果镜像不可见：GitHub 主页 → Packages → probedeck → Package settings
 #   → Change visibility → Public
@@ -13,6 +17,11 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: '同时发布的版本标签（可选，例如 v2.8.7，需与 Release 版本一致）'
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -47,6 +56,7 @@ jobs:
           tags: |
             type=ref,event=tag
             type=raw,value=latest,enable=${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             type=sha
 
       - name: Build and push
