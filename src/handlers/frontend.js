@@ -292,6 +292,25 @@ function normalizeThemeAssetUrls(html) {
   return html.replace(/\b(src|href)=(["'])\.?\/?assets\//gi, '$1=$2/assets/');
 }
 
+// 第三方主题品牌替换：主题内置的 CF-Server-Monitor 字样 → ProbeDeck
+const THEME_BRAND_PAIRS = [
+  ['github.com/huilang-me/CF-Server-Monitor', 'github.com/gg949/ProbeDeck'],
+  ['CF-Server-Monitor', 'ProbeDeck']
+];
+
+function rebrandThemeContent(text) {
+  if (!text || typeof text !== 'string') return text;
+  let out = text;
+  for (const [from, to] of THEME_BRAND_PAIRS) {
+    if (out.includes(from)) out = out.split(from).join(to);
+  }
+  return out;
+}
+
+function isTextualAsset(contentType) {
+  return /javascript|text\/css|text\/html|svg/i.test(contentType || '');
+}
+
 function stripBrowserCacheHeaders(response) {
   const headers = new Headers(response.headers);
   headers.delete('Cache-Control');
@@ -377,6 +396,16 @@ async function serveThemeAsset(request, themeUrl) {
     headers.set('Cache-Control', getThemeAssetBrowserCacheControl(parsedTheme));
   }
 
+  if (response.ok && isTextualAsset(contentType)) {
+    const text = rebrandThemeContent(await response.text());
+    headers.delete('Content-Length');
+    return new Response(text, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  }
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -396,7 +425,7 @@ async function loadThemeIndex(themeUrl) {
   );
 
   if (!response.ok) return null;
-  return normalizeThemeAssetUrls(await response.text());
+  return rebrandThemeContent(normalizeThemeAssetUrls(await response.text()));
 }
 
 function buildHtmlResponse(html, settings, request, env = {}, previewThemeUrl = '') {
