@@ -111,6 +111,13 @@ function buildMobileFixedBackgroundRules(safeUrl) {
   return `body{position:relative;min-height:100vh;background-image:none !important;background-color:transparent !important;background-attachment:scroll !important;}body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100vh;height:100lvh;pointer-events:none;z-index:-1;background-image:url('${safeUrl}') !important;background-size:cover !important;background-position:center !important;background-repeat:no-repeat !important;}html{background-color:var(--bg-primary,#0d1117) !important;}`;
 }
 
+// 部分第三方主题（如 Glassmorphism）自带 z-index:-2 的独立全屏背景层
+// （.dynamic-background__default，位于主题自己的 stacking context 内，会盖住
+// body 背景）：把同一个自定义背景图也写进该层，保证后台背景图在新版主题里生效。
+function buildThemeBackgroundLayerRule(safeUrl) {
+  return `.dynamic-background__default{background-image:url('${safeUrl}') !important;}`;
+}
+
 export function buildBackgroundStyle(url, mobileUrl = '') {
   const desktop = String(url || '').trim();
   const mobile = String(mobileUrl || '').trim();
@@ -121,13 +128,14 @@ export function buildBackgroundStyle(url, mobileUrl = '') {
   if (desktop) {
     const safe = escapeCssUrl(desktop);
     rules.push(buildBodyBackgroundRule(safe));
+    rules.push(buildThemeBackgroundLayerRule(safe));
     mobileBackground = safe;
   }
   if (mobile) {
     mobileBackground = escapeCssUrl(mobile);
   }
   if (mobileBackground) {
-    rules.push(`@media (max-width: 767px){${buildMobileFixedBackgroundRules(mobileBackground)}}`);
+    rules.push(`@media (max-width: 767px){${buildMobileFixedBackgroundRules(mobileBackground)}${buildThemeBackgroundLayerRule(mobileBackground)}}`);
   }
   return `<style>${rules.join('')}</style>`;
 }

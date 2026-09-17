@@ -15,7 +15,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import { WebSocketServer } from 'ws';
@@ -306,7 +306,9 @@ function parseFaviconDataUri(value) {
 async function tryServeCustomFavicon(request, env) {
   try {
     const url = new URL(request.url);
-    if (url.pathname !== '/favicon.ico') return null;
+    const isPlainFavicon = url.pathname === '/favicon.ico';
+    const hashedMatch = /^\/favicon-([a-f0-9]{12})\.ico$/.exec(url.pathname);
+    if (!isPlainFavicon && !hashedMatch) return null;
     if (request.method !== 'GET' && request.method !== 'HEAD') return null;
 
     const settings = await loadSettings(env.DB);
@@ -314,17 +316,29 @@ async function tryServeCustomFavicon(request, env) {
     if (!favicon) return null;
 
     if (/^https?:\/\//i.test(favicon)) {
-      return new Response(null, { status: 302, headers: { Location: favicon } });
+      return new Response(null, { status: 302, headers: { Location: favicon, 'Cache-Control': 'no-store' } });
     }
     const parsed = parseFaviconDataUri(favicon);
     if (!parsed) return null;
+
+    // 缓存策略：真正的资源地址 = 图标内容哈希路径 /favicon-<hash>.ico（可放心长缓存，
+    // 图标一改地址就变）；/favicon.ico 与过期哈希一律 302 到当前哈希地址且不缓存。
+    // 解决：Emerald 等主题的 Logo 直接请求 /favicon.ico，换图标后浏览器 / CDN 会拿
+    // 旧缓存长期显示旧图（Cloudflare 还会把 .ico 按默认策略缓存 4 小时）。
+    const hash = createHash('sha1').update(favicon).digest('hex').slice(0, 12);
+    if (!hashedMatch || hashedMatch[1] !== hash) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `/favicon-${hash}.ico`, 'Cache-Control': 'no-store' }
+      });
+    }
 
     return new Response(request.method === 'HEAD' ? null : parsed.buf, {
       status: 200,
       headers: {
         'Content-Type': parsed.mime,
         'Content-Length': String(parsed.buf.length),
-        'Cache-Control': 'no-cache'
+        'Cache-Control': 'public, max-age=31536000, immutable'
       }
     });
   } catch (e) {
