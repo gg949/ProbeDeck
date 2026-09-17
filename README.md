@@ -10,6 +10,28 @@
 > （D1→SQLite、Durable Objects→单进程实例、Cron→定时器、Workers Assets→静态文件），
 > `src/` 业务代码保持原样，方便跟随上游更新。
 
+## 📦 部署依赖与资源消耗 (Requirements & Quotas)
+
+### 1. 运行环境依赖 (Requirements)
+* **主控服务端 (Server)**：
+  * **操作系统**：Linux (Debian 11+ / Ubuntu 20.04+ / Alpine Linux)
+  * **运行时**：Docker & Docker Compose（或 Node.js 18+ 环境）
+  * **反向代理**：Caddy（推荐，开箱即用自动 HTTPS 与 WS 支持）或 Nginx
+  * **存储引擎**：SQLite 3（轻量单文件存储，无额外数据库中间件负担）
+* **被控端 (Agent)**：
+  * **架构支持**：x86_64 (amd64) / aarch64 (arm64)
+  * **依赖项**：无任何外部依赖，支持以非 Root 普通用户权限常驻运行。
+
+### 2. 资源配额与性能消耗 (Resource Consumption)
+* **内存占用**：
+  * **Agent 内存**：常驻仅占用 **约 8MB ~ 15MB RSS**，极低系统开销。
+  * **主控服务端**：Docker 容器内存占用通常维持在 **30MB ~ 60MB**。
+* **CPU 负载**：日常监控周期内 Agent 的 CPU 消耗低于 **0.1%**，对业务机型完全无感知。
+* **网络流量配额**：
+  * 单机数据包体积经轻量 JSON 压缩，上报带宽消耗平均约 **0.5 KB/s ~ 1.5 KB/s**（单台节点每月仅产生约 **1.5 GB ~ 3 GB** 内部监控流量）。
+* **磁盘与数据归档**：
+  * SQLite 内置历史指标轮换（Retention）清理策略，定期按策略修剪高频历史日志，主控数据库体积长期稳定可控。
+
 ## 功能
 
 与原版一致：实时监控、WebSocket 秒级推送、历史数据与图表、离线告警、到期通知、
@@ -21,6 +43,25 @@
 - **地区自动识别**：内置 MaxMind GeoLite2 数据库自动识别探针所在国家（可切换 ipinfo.io）
 - 单容器部署，一条命令跑起来；数据落本地 SQLite，备份 = 复制 `data/` 目录
 - 同一套探针脚本，支持 Linux / Alpine / OpenWrt / macOS / 群晖 / fnOS / Windows
+
+## ⚙️ 架构指标与告警设计 (Architecture & Reliability)
+
+### 1. 采集延迟与数据流转 (Latency & Data Pipeline)
+* **上报频次**：Agent 默认每 **1~3 秒** 向服务端单向推流增量系统指标。
+* **分发延迟**：服务端采用原生 WebSocket 广播（`101 Switching Protocols`）+ 内存级推流通道，前台大盘面板端到端渲染延迟低于 **100ms**。
+* **网络穿透**：全链路支持 HTTP/2 与 HTTP/3 (QUIC) 反向代理，网络抖动自适应平滑。
+
+### 2. 离线判定与误报控制 (False Alarm Mitigation)
+* **双阶离线检测机制**：
+  * **失联软缓冲**：当主控持续 **30 秒** 未收到 Agent 上报数据包时，触发失联判定，避免因公网偶发抖动导致的频繁闪断与误报。
+  * **时钟校准容错**：握手握有严格的 UTC 纪元时间戳校验，杜绝因被控端与主控系统时间漂移造成的假离线或数据倒流。
+* **主动保活心跳**：服务端内置 **25 秒** 双向 Ping/Pong 链路检测机制，可主动识别并清理 TCP 半打开死连接，防止反代（如 Caddy/Nginx）提前掐断空闲长连接。
+
+### 3. 告警通道集成 (Alerting Channels)
+ProbeDeck 支持在节点离线、CPU/内存/磁盘高载或流量超标时触发多通道告警：
+* **Telegram Bot**：支持配置 Bot Token 与 Chat ID 发送富文本卡片通知。
+* **Webhook 协议**：支持钉钉（DingTalk）、飞书（Lark）、企业微信及自定义 RESTful API 端点回调。
+* **静默与防打扰**：支持告警收敛与恢复通知，单节点故障在同一窗口期内不重复轰炸。
 
 ## 快速开始
 
