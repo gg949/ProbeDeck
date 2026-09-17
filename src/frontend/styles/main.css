@@ -2808,6 +2808,35 @@ body::before {
     font-weight: 600;
 }
 
+.traffic-report-types {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    min-height: 35px;
+    padding: 8px 0;
+}
+
+.traffic-report-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.traffic-report-type:hover {
+    color: var(--accent-cyan);
+}
+
+.traffic-report-type input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-green);
+    cursor: pointer;
+}
+
 .wss-schedule {
     margin: 0 0 16px;
     padding: 14px 0 16px;

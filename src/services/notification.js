@@ -16,6 +16,7 @@ import {
   normalizeNotificationWebhookFormat,
   normalizeNotificationWebhookHeaders,
   normalizeNotificationWebhookMethod,
+  resolveTrafficReportTypes,
   debug
 } from '../utils/settings.js';
 import { detectBillingCycle, normalizeBillingCycle, renewExpireDateIfNeeded } from '../utils/serverBilling.js';
@@ -142,10 +143,6 @@ function formatTrafficBytes(value) {
     unit += 1;
   }
   return `${size.toFixed(unit === 0 || size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[unit]}`;
-}
-
-function isTrafficReportEnabled(settings, field) {
-  return normalizeBooleanSetting(settings?.[field]) === 'true';
 }
 
 function formatMegabitsPerSecond(value) {
@@ -1387,7 +1384,8 @@ export function buildTrafficReportPayloads(servers, rows, label, batchSize = TRA
 export async function checkTrafficReports(db, options = {}) {
   const settings = await loadSiteSettings(db);
   const now = Number(options.now || Date.now());
-  if (!isTrafficReportEnabled(settings, 'traffic_report_enabled')) return false;
+  const configuredTypes = new Set(resolveTrafficReportTypes(settings));
+  if (configuredTypes.size === 0) return false;
   if (options.scheduled && !isExpireNotificationTimeDue(settings, now)) return false;
   const zonedParts = getZonedDateParts(now, settings.notification_timezone);
   if (options.scheduledMinute !== undefined && Number(zonedParts?.minute) !== Number(options.scheduledMinute)) return false;
@@ -1404,6 +1402,7 @@ export async function checkTrafficReports(db, options = {}) {
     const slotType = slot === 0 ? 'daily' : slot === 1 ? 'weekly' : slot === 2 ? 'monthly' : null;
     reportTypes = slotType && dueTypes.includes(slotType) ? [slotType] : [];
   }
+  reportTypes = reportTypes.filter(type => configuredTypes.has(type));
   if (reportTypes.length === 0) return false;
   const servers = await getAllServers(db);
   const latestMetrics = await getLatestMetricsForAllServers(db);

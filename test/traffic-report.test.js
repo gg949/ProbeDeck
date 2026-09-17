@@ -10,6 +10,7 @@ import {
   normalizeTrafficSnapshots,
   updateTrafficSnapshots
 } from '../src/services/notification.js';
+import { normalizeTrafficReportTypes, resolveTrafficReportTypes } from '../src/utils/settings.js';
 
 const timezone = 'Asia/Shanghai';
 const server = { id: 'server-1', name: 'Tokyo' };
@@ -145,4 +146,24 @@ test('traffic report payloads also split before the message soft limit', () => {
 
   assert.ok(reports.length > 1);
   assert.ok(reports.every(report => report.msg.length <= 3000));
+});
+
+test('traffic report types normalize arrays and CSV into a canonical CSV', () => {
+  assert.equal(normalizeTrafficReportTypes('monthly,daily'), 'daily,monthly');
+  assert.equal(normalizeTrafficReportTypes(['weekly', 'WEEKLY', 'bogus']), 'weekly');
+  assert.equal(normalizeTrafficReportTypes(['daily', 'weekly', 'monthly']), 'daily,weekly,monthly');
+  assert.equal(normalizeTrafficReportTypes(''), '');
+  assert.equal(normalizeTrafficReportTypes(null), '');
+});
+
+test('traffic report types resolve with legacy enabled fallback', () => {
+  assert.deepEqual(resolveTrafficReportTypes({ traffic_report_types: 'weekly' }), ['weekly']);
+  assert.deepEqual(resolveTrafficReportTypes({ traffic_report_types: 'weekly,monthly' }), ['weekly', 'monthly']);
+  assert.deepEqual(
+    resolveTrafficReportTypes({ traffic_report_types: '', traffic_report_enabled: 'true' }),
+    ['daily', 'weekly', 'monthly']
+  );
+  assert.deepEqual(resolveTrafficReportTypes({ traffic_report_types: '', traffic_report_enabled: 'false' }), []);
+  assert.deepEqual(resolveTrafficReportTypes({}), []);
+  assert.deepEqual(resolveTrafficReportTypes({ traffic_report_enabled: true }), ['daily', 'weekly', 'monthly']);
 });

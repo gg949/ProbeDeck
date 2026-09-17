@@ -1,7 +1,7 @@
 import { buildAuthCookie, buildClearAuthCookie, checkAuth, simpleAuthResponse, validateCredentials, generateToken } from '../middleware/auth.js';
 import { getLatestMetricsForAllServers } from '../database/schema.js';
 import { getAllServers, clearServersListCache } from '../utils/cache.js';
-import { clearAppearanceSettingsCache, isValidThemeOptions, isWssReportConfigured, isWssReportEnabled, normalizeBooleanSetting, normalizeDefaultLanguage, normalizeDisplayMode, normalizeExpireNotificationTime, normalizeExpireReminder, normalizeFrontendWsTimeoutMinutes, normalizeHistoryRetentionDays, normalizeLongHistoryPoints, normalizeNotificationCustomScript, normalizeNotificationEventEmojis, normalizeNotificationTemplate, normalizeOnlineThresholdSeconds, normalizePublicHistoryHours, resolveOnlineThresholdSeconds, normalizeNotificationTimezone, normalizeNotificationWebhookBody, normalizeNotificationWebhookFormat, normalizeNotificationWebhookHeaders, normalizeNotificationWebhookMethod, normalizePreferredTheme, normalizeResourceAlertRules, normalizeTgNotify, normalizeWssReportHours, saveSiteOptions, saveThemeOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
+import { clearAppearanceSettingsCache, isValidThemeOptions, isWssReportConfigured, isWssReportEnabled, normalizeBooleanSetting, normalizeDefaultLanguage, normalizeDisplayMode, normalizeExpireNotificationTime, normalizeExpireReminder, normalizeFrontendWsTimeoutMinutes, normalizeHistoryRetentionDays, normalizeLongHistoryPoints, normalizeNotificationCustomScript, normalizeNotificationEventEmojis, normalizeNotificationTemplate, normalizeOnlineThresholdSeconds, normalizePublicHistoryHours, resolveOnlineThresholdSeconds, normalizeNotificationTimezone, normalizeNotificationWebhookBody, normalizeNotificationWebhookFormat, normalizeNotificationWebhookHeaders, normalizeNotificationWebhookMethod, normalizePreferredTheme, normalizeResourceAlertRules, normalizeTgNotify, normalizeTrafficReportTypes, normalizeWssReportHours, resolveTrafficReportTypes, saveSiteOptions, saveThemeOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { verifyTurnstileToken, hashPassword } from '../utils/common.js';
 import { AppError, createSuccessResponse, createBadRequestResponse, createUnauthorizedResponse, createErrorResponse } from '../utils/errors.js';
@@ -794,11 +794,14 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         ? normalizeResourceAlertRules(settings.resource_alert_rules)
         : currentResourceAlertRules;
       const resourceAlertEnabled = normalizedResourceAlertRules.length > 0;
-      const trafficReportEnabled = normalizeBooleanSetting(
-        settings.traffic_report_enabled !== undefined
+      const trafficReportEnabled = resolveTrafficReportTypes({
+        traffic_report_types: settings.traffic_report_types !== undefined
+          ? settings.traffic_report_types
+          : sys?.traffic_report_types,
+        traffic_report_enabled: settings.traffic_report_enabled !== undefined
           ? settings.traffic_report_enabled
           : sys?.traffic_report_enabled
-      ) === 'true';
+      }).length > 0;
       if (tgNotify !== '0' || expireReminder !== '0' || resourceAlertEnabled || trafficReportEnabled) {
         const webhookEnabled = settings.notification_webhook_enabled !== undefined
           ? normalizeBooleanSetting(settings.notification_webhook_enabled) === 'true'
@@ -908,6 +911,8 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
             siteOptions[field] = normalizeNotificationTimezone(settings[field]);
           } else if (field === 'expire_notification_time') {
             siteOptions[field] = normalizeExpireNotificationTime(settings[field]);
+          } else if (field === 'traffic_report_types') {
+            siteOptions[field] = normalizeTrafficReportTypes(settings[field]);
           } else if (field === 'traffic_report_enabled') {
             siteOptions[field] = normalizeBooleanSetting(settings[field]);
           } else if (field === 'notification_webhook_enabled') {

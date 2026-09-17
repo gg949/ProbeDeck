@@ -619,6 +619,23 @@ const normalizeWssReportHoursSetting = (value) => {
     .sort((a, b) => a - b)
 }
 
+const TRAFFIC_REPORT_TYPE_VALUES = ['daily', 'weekly', 'monthly']
+
+const normalizeTrafficReportTypesSetting = (value, enabledFallback) => {
+  let source = value
+  if (typeof source === 'string') {
+    source = source.split(',').map(item => item.trim()).filter(Boolean)
+  }
+  if (!Array.isArray(source)) source = []
+  const picked = new Set(source
+    .map(item => String(item || '').trim().toLowerCase())
+    .filter(item => TRAFFIC_REPORT_TYPE_VALUES.includes(item)))
+  const selected = TRAFFIC_REPORT_TYPE_VALUES.filter(item => picked.has(item))
+  if (selected.length > 0) return selected
+  const enabled = enabledFallback === 'true' || enabledFallback === true
+  return enabled ? [...TRAFFIC_REPORT_TYPE_VALUES] : []
+}
+
 const normalizeResourceAlertModeSetting = (value) => {
   const mode = String(value || '').trim().toLowerCase()
   return mode === 'continuous' ? 'continuous' : 'average'
@@ -825,6 +842,7 @@ const settings = ref({
   notification_timezone: 'UTC',
   expire_notification_time: '12',
   traffic_report_enabled: false,
+  traffic_report_types: [],
   notification_webhook_enabled: false,
   notification_webhook_url: '',
   notification_webhook_method: 'POST',
@@ -1280,6 +1298,7 @@ const loadSettings = async () => {
         notification_timezone: normalizeNotificationTimezoneSetting(settingsData.notification_timezone),
         expire_notification_time: normalizeExpireNotificationTimeSetting(settingsData.expire_notification_time),
         traffic_report_enabled: settingsData.traffic_report_enabled === 'true' || settingsData.traffic_report_enabled === true,
+        traffic_report_types: normalizeTrafficReportTypesSetting(settingsData.traffic_report_types, settingsData.traffic_report_enabled),
         notification_webhook_enabled: settingsData.notification_webhook_enabled === 'true' || settingsData.notification_webhook_enabled === true,
         notification_webhook_url: settingsData.notification_webhook_url || '',
         notification_webhook_method: String(settingsData.notification_webhook_method || 'POST').toUpperCase() === 'GET' ? 'GET' : 'POST',
@@ -1396,7 +1415,7 @@ const saveSettings = async () => {
     }
   }
 
-  const isTrafficReportEnabled = settings.value.traffic_report_enabled
+  const isTrafficReportEnabled = normalizeTrafficReportTypesSetting(settings.value.traffic_report_types).length > 0
   if (isTgNotifyEnabled(settings.value.tg_notify) || isExpireReminderEnabled(settings.value.expire_reminder) || isResourceAlertEnabled(settings.value.resource_alert_rules) || isTrafficReportEnabled) {
     if (isNotificationWebhookEnabled()) {
       if (!settings.value.notification_webhook_url || settings.value.notification_webhook_url.trim().length === 0) {
@@ -1432,6 +1451,7 @@ const saveSettings = async () => {
   saving.value = true
   saveResult.value = null
 
+  const trafficReportTypes = normalizeTrafficReportTypesSetting(settings.value.traffic_report_types)
   const data = {
     action: 'save_settings',
     settings: {
@@ -1466,7 +1486,8 @@ const saveSettings = async () => {
       tg_chat_id: settings.value.tg_chat_id,
       notification_timezone: normalizeNotificationTimezoneSetting(settings.value.notification_timezone),
       expire_notification_time: normalizeExpireNotificationTimeSetting(settings.value.expire_notification_time),
-      traffic_report_enabled: settings.value.traffic_report_enabled ? 'true' : 'false',
+      traffic_report_types: trafficReportTypes.join(','),
+      traffic_report_enabled: trafficReportTypes.length > 0 ? 'true' : 'false',
       notification_webhook_enabled: settings.value.notification_webhook_enabled ? 'true' : 'false',
       notification_webhook_url: settings.value.notification_webhook_url,
       notification_webhook_method: settings.value.notification_webhook_method === 'GET' ? 'GET' : 'POST',

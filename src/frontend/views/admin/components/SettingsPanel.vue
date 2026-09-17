@@ -319,10 +319,21 @@
                 :text="`⚠️ ${trans.trafficReportRestartWarning || 'Traffic uses network-interface counters. A server or Agent restart may reset them and make the current report period inaccurate.'}`"
               />
             </label>
-            <select v-model="settings.traffic_report_enabled" class="form-select">
-              <option :value="false">{{ trans.disabled || 'Disabled' }}</option>
-              <option :value="true">{{ trans.enabled || 'Enabled' }}</option>
-            </select>
+            <div class="traffic-report-types">
+              <label class="traffic-report-type">
+                <input type="checkbox" value="daily" v-model="settings.traffic_report_types">
+                <span>{{ trans.trafficReportDaily || 'Daily' }}</span>
+              </label>
+              <label class="traffic-report-type">
+                <input type="checkbox" value="weekly" v-model="settings.traffic_report_types">
+                <span>{{ trans.trafficReportWeekly || 'Weekly' }}</span>
+              </label>
+              <label class="traffic-report-type">
+                <input type="checkbox" value="monthly" v-model="settings.traffic_report_types">
+                <span>{{ trans.trafficReportMonthly || 'Monthly' }}</span>
+              </label>
+            </div>
+            <div class="text-muted text-sm mt-1">{{ trans.trafficReportTypesHint || 'Uncheck all to disable traffic reports.' }}</div>
           </div>
 
           <div class="form-group flex-1">
