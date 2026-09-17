@@ -1,7 +1,7 @@
 import { buildAuthCookie, buildClearAuthCookie, checkAuth, simpleAuthResponse, validateCredentials, generateToken } from '../middleware/auth.js';
 import { getLatestMetricsForAllServers } from '../database/schema.js';
 import { getAllServers, clearServersListCache } from '../utils/cache.js';
-import { clearAppearanceSettingsCache, isValidThemeOptions, isWssReportConfigured, isWssReportEnabled, normalizeBooleanSetting, normalizeDefaultLanguage, normalizeDisplayMode, normalizeExpireNotificationTime, normalizeExpireReminder, normalizeFrontendWsTimeoutMinutes, normalizeHistoryRetentionDays, normalizeLongHistoryPoints, normalizeNotificationTemplate, normalizeOnlineThresholdSeconds, resolveOnlineThresholdSeconds, normalizeNotificationTimezone, normalizeNotificationWebhookBody, normalizeNotificationWebhookFormat, normalizeNotificationWebhookHeaders, normalizeNotificationWebhookMethod, normalizePreferredTheme, normalizeResourceAlertRules, normalizeTgNotify, normalizeWssReportHours, saveSiteOptions, saveThemeOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
+import { clearAppearanceSettingsCache, isValidThemeOptions, isWssReportConfigured, isWssReportEnabled, normalizeBooleanSetting, normalizeDefaultLanguage, normalizeDisplayMode, normalizeExpireNotificationTime, normalizeExpireReminder, normalizeFrontendWsTimeoutMinutes, normalizeHistoryRetentionDays, normalizeLongHistoryPoints, normalizeNotificationCustomScript, normalizeNotificationEventEmojis, normalizeNotificationTemplate, normalizeOnlineThresholdSeconds, normalizePublicHistoryHours, resolveOnlineThresholdSeconds, normalizeNotificationTimezone, normalizeNotificationWebhookBody, normalizeNotificationWebhookFormat, normalizeNotificationWebhookHeaders, normalizeNotificationWebhookMethod, normalizePreferredTheme, normalizeResourceAlertRules, normalizeTgNotify, normalizeWssReportHours, saveSiteOptions, saveThemeOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { verifyTurnstileToken, hashPassword } from '../utils/common.js';
 import { AppError, createSuccessResponse, createBadRequestResponse, createUnauthorizedResponse, createErrorResponse } from '../utils/errors.js';
@@ -685,11 +685,16 @@ async function handleSendTestNotificationAction({ data }) {
     notification_webhook_headers,
     notification_webhook_body,
     notification_template,
+    notification_custom_script,
+    notification_event_emojis,
     notification_timezone,
     expire_notification_time
   } = data;
   const webhookEnabled = normalizeBooleanSetting(notification_webhook_enabled) === 'true';
-  if (webhookEnabled) {
+  const customScript = normalizeNotificationCustomScript(notification_custom_script);
+  if (String(customScript || '').trim().length > 0) {
+    // 已配置自定义 JS 通知脚本（优先级最高），无需其他渠道
+  } else if (webhookEnabled) {
     if (!notification_webhook_url || String(notification_webhook_url).trim().length === 0) {
       return createBadRequestResponse('notificationWebhookUrlRequired');
     }
@@ -708,6 +713,8 @@ async function handleSendTestNotificationAction({ data }) {
       notification_webhook_headers: normalizeNotificationWebhookHeaders(notification_webhook_headers),
       notification_webhook_body: normalizeNotificationWebhookBody(notification_webhook_body),
       notification_template: normalizeNotificationTemplate(notification_template),
+      notification_custom_script: customScript,
+      notification_event_emojis: normalizeNotificationEventEmojis(notification_event_emojis),
       notification_timezone: normalizeNotificationTimezone(notification_timezone),
       expire_notification_time: normalizeExpireNotificationTime(expire_notification_time)
     }, testMsg, {
@@ -802,7 +809,12 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         const effectiveTgBotToken = settings.tg_bot_token !== undefined
           ? settings.tg_bot_token
           : sys?.tg_bot_token;
-        if (webhookEnabled) {
+        const effectiveCustomScript = settings.notification_custom_script !== undefined
+          ? settings.notification_custom_script
+          : sys?.notification_custom_script;
+        if (String(effectiveCustomScript || '').trim().length > 0) {
+          // 已配置自定义 JS 通知脚本（优先级最高），无需再校验其他渠道
+        } else if (webhookEnabled) {
           if (!effectiveWebhookUrl || String(effectiveWebhookUrl).trim().length === 0) {
             return createBadRequestResponse('notificationWebhookUrlRequired');
           }
@@ -874,6 +886,12 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
             siteOptions[field] = normalizeHistoryRetentionDays(settings[field]);
           } else if (field === 'online_threshold_seconds') {
             siteOptions[field] = normalizeOnlineThresholdSeconds(settings[field]);
+          } else if (field === 'public_history_hours') {
+            siteOptions[field] = normalizePublicHistoryHours(settings[field]);
+          } else if (field === 'notification_custom_script') {
+            siteOptions[field] = normalizeNotificationCustomScript(settings[field]);
+          } else if (field === 'notification_event_emojis') {
+            siteOptions[field] = normalizeNotificationEventEmojis(settings[field]);
           } else if (field === 'long_history_points') {
             siteOptions[field] = normalizeLongHistoryPoints(settings[field]);
           } else if (field === 'frontend_ws_timeout_minutes') {

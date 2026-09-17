@@ -274,8 +274,12 @@ async function writeRawHttpResponse(socket, response) {
   }
   lines.push('connection: close');
 
+  // 升级被拒等响应可能不带 statusText（如 409），按标准状态码补齐原因短语，
+  // 保证裸 socket 写回的响应行是「HTTP/1.1 409 Conflict」这样的完整形式
+  const statusText = response.statusText || http.STATUS_CODES[response.status] || 'Unknown';
+
   socket.write(
-    `HTTP/1.1 ${response.status} ${response.statusText || ''}\r\n${lines.join('\r\n')}\r\n\r\n`
+    `HTTP/1.1 ${response.status} ${statusText}\r\n${lines.join('\r\n')}\r\n\r\n`
   );
   if (body) socket.write(body);
   socket.end();

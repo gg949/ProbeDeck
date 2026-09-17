@@ -619,31 +619,48 @@ export async function weeklyCleanup(db) {
     }else{
       debug('✅ 继续兼容模式');
     }
-    
-    // 1. 删除旧的 metrics_history_old 表（如果存在）
-    await db.prepare(`DROP TABLE IF EXISTS metrics_history_old`).run();
-    debug('[Cleanup] 已删除旧的 metrics_history_old 表');
-    
-    // 2. 将 metrics_history 重命名为 metrics_history_old
-    const currentTable = await db.prepare(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='metrics_history'`
-    ).first();
-    
-    if (currentTable) {
-      await db.prepare(`ALTER TABLE metrics_history RENAME TO metrics_history_old`).run();
-      debug('[Cleanup] 已将 metrics_history 重命名为 metrics_history_old');
-    }
-  
-    // 3. 重新初始化数据库以创建新的 metrics_history 表
-    dbInitialized = false;
-    await initDatabase(db);
 
-    debug('[Cleanup] 已创建新的 metrics_history 表');
-    
-    // 4. 记录本次轮换时间（供保留周期触发判断与旧表查询边界使用）
-    await setLastRotationAt(db, Date.now());
-    debug('[Cleanup] 已记录本次轮换时间');
-    
+    // 轮换动作（DROP 旧表 → RENAME → 建新表 → 记录时间）包进一个事务：
+    // 中途失败/掉电时整体回滚——旧数据保持原样、last_rotation_at 不写入，
+    // 避免极小概率下丢历史或被误判为已轮换（修复前为非原子顺序执行）。
+    const rotate = async () => {
+      // 1. 删除旧的 metrics_history_old 表（如果存在）
+      await db.prepare(`DROP TABLE IF EXISTS metrics_history_old`).run();
+      debug('[Cleanup] 已删除旧的 metrics_history_old 表');
+
+      // 2. 将 metrics_history 重命名为 metrics_history_old
+      const currentTable = await db.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='metrics_history'`
+      ).first();
+
+      if (currentTable) {
+        await db.prepare(`ALTER TABLE metrics_history RENAME TO metrics_history_old`).run();
+        debug('[Cleanup] 已将 metrics_history 重命名为 metrics_history_old');
+      }
+
+      // 3. 重建新的 metrics_history 表（与 initDatabase 的建表语句一致）
+      await db.prepare(createHistoryTableSql('metrics_history')).run();
+      debug('[Cleanup] 已创建新的 metrics_history 表');
+
+      // 4. 记录本次轮换时间（供保留周期触发判断与旧表查询边界使用）
+      await setLastRotationAt(db, Date.now());
+      debug('[Cleanup] 已记录本次轮换时间');
+    };
+
+    if (typeof db.exec === 'function') {
+      await db.exec('BEGIN IMMEDIATE');
+      try {
+        await rotate();
+        await db.exec('COMMIT');
+      } catch (e) {
+        try { await db.exec('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    } else {
+      // 无事务能力的适配环境（如 Cloudflare D1 无 exec）：降级为顺序执行
+      await rotate();
+    }
+
     return {
       success: true,
       message: '表轮换成功'

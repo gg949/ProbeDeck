@@ -19,6 +19,7 @@ import {
   debug
 } from '../utils/settings.js';
 import { detectBillingCycle, normalizeBillingCycle, renewExpireDateIfNeeded } from '../utils/serverBilling.js';
+import { runCustomNotificationScript } from './customScript.js';
 import {
   NOTIFICATION_MAX_RETRIES,
   NOTIFICATION_RETRY_DELAY_MS,
@@ -545,6 +546,33 @@ function inferNotificationEmoji(event) {
   return 'ℹ️';
 }
 
+// 把通知事件归类到面板可配置的六类：离线 / 恢复 / 到期 / 告警 / 流量 / 测试
+export function categorizeNotificationEvent(event) {
+  const normalizedEvent = String(event || '');
+  if (/测试/.test(normalizedEvent)) return 'test';
+  if (/流量/.test(normalizedEvent)) return 'traffic';
+  if (/恢复/.test(normalizedEvent)) return 'recover';
+  if (/到期|过期|提醒/.test(normalizedEvent)) return 'expire';
+  if (/离线/.test(normalizedEvent)) return 'offline';
+  if (/告警|失败|异常/.test(normalizedEvent)) return 'alert';
+  return '';
+}
+
+export function getCustomEventEmoji(event, emojiMap) {
+  const category = categorizeNotificationEvent(event);
+  if (!category || !emojiMap || typeof emojiMap !== 'object') return '';
+  const emoji = typeof emojiMap[category] === 'string' ? emojiMap[category].trim() : '';
+  return emoji;
+}
+
+// Emoji 解析顺序：用户按事件自定义 > 调用方显式传入 > 内置默认推断
+export function resolveNotificationEmoji(event, emojiMap = null, explicitEmoji = '') {
+  const custom = getCustomEventEmoji(event, emojiMap);
+  if (custom) return custom;
+  if (explicitEmoji) return explicitEmoji;
+  return inferNotificationEmoji(event);
+}
+
 function buildNotificationContext(settings, msg, context = {}) {
   const now = formatCurrentTime(settings);
   const clients = normalizeNotificationClients(context);
@@ -553,9 +581,9 @@ function buildNotificationContext(settings, msg, context = {}) {
     : clients.length;
   const event = context.event || inferNotificationEvent(msg);
   return {
-    title: '💌 Cloudflare Server Monitor',
+    title: '💌 ProbeDeck',
     event,
-    emoji: context.emoji || inferNotificationEmoji(event),
+    emoji: resolveNotificationEmoji(event, settings?.notification_event_emojis, context.emoji),
     client: context.client || clients.join(', '),
     clients: clients.join(', '),
     count: String(count),
@@ -669,6 +697,9 @@ async function sendCustomWebhookNotification(settings, context) {
 }
 
 function hasNotificationTarget(settings) {
+  if (String(settings?.notification_custom_script || '').trim().length > 0) {
+    return true;
+  }
   if (normalizeBooleanSetting(settings?.notification_webhook_enabled) === 'true') {
     return String(settings?.notification_webhook_url || '').trim().length > 0;
   }
@@ -680,6 +711,26 @@ export async function sendNotification(settings, msg, notificationContext = {}) 
   const formattedMsg = formatNotificationMessage(settings || {}, msg, context);
   context.notification = formattedMsg;
   const title = context.title;
+
+  // 自定义 JS 通知脚本（非空时优先于其他渠道）
+  const customScript = String(settings?.notification_custom_script || '').trim();
+  if (customScript) {
+    const result = await runCustomNotificationScript(customScript, {
+      message: formattedMsg,
+      title,
+      event: {
+        event: context.event,
+        clients: context.clients,
+        time: context.time,
+        message: context.message,
+        emoji: context.emoji
+      }
+    });
+    if (!result.ok) {
+      return '自定义 JS 通知失败: ' + result.error;
+    }
+    return;
+  }
 
   if (normalizeBooleanSetting(settings?.notification_webhook_enabled) === 'true') {
     if (!String(settings?.notification_webhook_url || '').trim()) return "自定义 Webhook 通知失败: 缺少 URL";
@@ -766,7 +817,7 @@ export async function sendNotification(settings, msg, notificationContext = {}) 
         body: JSON.stringify({
           title: title,
           markdown: formattedMsg,
-          group: "Cloudflare Server Monitor"
+          group: "ProbeDeck"
         })
       });
     } catch (e) {

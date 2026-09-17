@@ -6,7 +6,7 @@ import {
 
 export const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'custom_bg_mobile', 'favicon', 'custom_head', 'custom_script', 'csp_static', 'csp_api', 'display_mode', 'preferred_theme', 'default_language', 'theme_options'];
 
-export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_three_net_details', 'wss_report_enabled', 'wss_report_hours', 'frontend_ws_timeout_minutes', 'long_history_points', 'history_retention_days', 'online_threshold_seconds', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'notification_timezone', 'expire_notification_time', 'traffic_report_enabled', 'notification_webhook_enabled', 'notification_webhook_url', 'notification_webhook_method', 'notification_webhook_format', 'notification_webhook_headers', 'notification_webhook_body', 'notification_template', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'node_1', 'node_2', 'node_3', 'node_4', 'custom_ct_name', 'custom_cu_name', 'custom_cm_name', 'custom_bd_name', 'node_1_name', 'node_2_name', 'node_3_name', 'node_4_name', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
+export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_three_net_details', 'wss_report_enabled', 'wss_report_hours', 'frontend_ws_timeout_minutes', 'long_history_points', 'history_retention_days', 'online_threshold_seconds', 'public_history_hours', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'notification_timezone', 'expire_notification_time', 'traffic_report_enabled', 'notification_webhook_enabled', 'notification_webhook_url', 'notification_webhook_method', 'notification_webhook_format', 'notification_webhook_headers', 'notification_webhook_body', 'notification_template', 'notification_custom_script', 'notification_event_emojis', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'node_1', 'node_2', 'node_3', 'node_4', 'custom_ct_name', 'custom_cu_name', 'custom_cm_name', 'custom_bd_name', 'node_1_name', 'node_2_name', 'node_3_name', 'node_4_name', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
 
 export const TG_NOTIFY_MINUTES_MIN = 2;
 export const TG_NOTIFY_MINUTES_MAX = 30;
@@ -20,6 +20,9 @@ export const DEFAULT_HISTORY_RETENTION_DAYS = 14;
 export const HISTORY_RETENTION_DAY_OPTIONS = [7, 14, 30, 60, 90, 180, 365];
 export const ONLINE_THRESHOLD_SECOND_OPTIONS = [60, 120, 180, 300, 600, 900, 1800, 3600];
 export const DEFAULT_ONLINE_THRESHOLD_SECONDS = 300;
+export const PUBLIC_HISTORY_HOUR_OPTIONS = [24, 48, 96, 168, 336, 720];
+export const DEFAULT_PUBLIC_HISTORY_HOURS = 24;
+export const NOTIFICATION_EVENT_EMOJI_KEYS = ['offline', 'recover', 'expire', 'alert', 'traffic', 'test'];
 export const FRONTEND_WS_TIMEOUT_MINUTES_MAX = 1440;
 export const DEFAULT_NOTIFICATION_TIMEZONE = 'UTC';
 export const DEFAULT_EXPIRE_NOTIFICATION_TIME = '12';
@@ -87,6 +90,7 @@ const defaults = {
   long_history_points: String(DEFAULT_LONG_HISTORY_POINTS),
   history_retention_days: '',
   online_threshold_seconds: '',
+  public_history_hours: '',
   tg_notify: '0',
   tg_bot_token: '',
   tg_chat_id: '',
@@ -100,6 +104,8 @@ const defaults = {
   notification_webhook_headers: '',
   notification_webhook_body: DEFAULT_NOTIFICATION_WEBHOOK_BODY,
   notification_template: DEFAULT_NOTIFICATION_TEMPLATE,
+  notification_custom_script: '',
+  notification_event_emojis: {},
   turnstile_enabled: 'false',
   turnstile_login_enabled: 'false',
   turnstile_site_key: '',
@@ -172,6 +178,20 @@ export function normalizeOnlineThresholdSeconds(value) {
 export function resolveOnlineThresholdSeconds(value) {
   const normalized = normalizeOnlineThresholdSeconds(value);
   return normalized ? Number(normalized) : DEFAULT_ONLINE_THRESHOLD_SECONDS;
+}
+
+export function normalizePublicHistoryHours(value) {
+  if (value === undefined || value === null || value === '') return '';
+  const hours = Number(value);
+  return Number.isFinite(hours) && PUBLIC_HISTORY_HOUR_OPTIONS.includes(hours)
+    ? String(hours)
+    : '';
+}
+
+// 未登录访客可查看的历史范围上限（默认为 24 小时，保持旧行为）
+export function resolvePublicHistoryHours(value) {
+  const normalized = normalizePublicHistoryHours(value);
+  return normalized ? Number(normalized) : DEFAULT_PUBLIC_HISTORY_HOURS;
 }
 
 export function normalizeFrontendWsTimeoutMinutes(value) {
@@ -288,6 +308,32 @@ export function normalizeNotificationTemplate(value) {
     .replace(/CF-Server-Monitor/gi, 'ProbeDeck')
     .replace(/CF Server Monitor/gi, 'ProbeDeck')
     .slice(0, 4000);
+}
+
+// 每事件 Emoji 映射：仅保留已知事件键，值去空白、最长 16 个字符；空值不落库
+export function normalizeNotificationEventEmojis(value) {
+  let source = value;
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source);
+    } catch (_) {
+      source = null;
+    }
+  }
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return {};
+  const result = {};
+  for (const key of NOTIFICATION_EVENT_EMOJI_KEYS) {
+    const raw = source[key];
+    const emoji = typeof raw === 'string' ? raw.trim().slice(0, 16) : '';
+    if (emoji) result[key] = emoji;
+  }
+  return result;
+}
+
+// 自定义 JS 通知脚本：保持原文（不 trim/不改动），仅做类型兜底
+export function normalizeNotificationCustomScript(value) {
+  if (value === undefined || value === null) return '';
+  return typeof value === 'string' ? value : String(value);
 }
 
 export function normalizeResourceAlertWindowMinutes(value) {
@@ -696,6 +742,7 @@ export async function loadSiteSettings(db, options = {}) {
     result.long_history_points = normalizeLongHistoryPoints(result.long_history_points);
     result.history_retention_days = normalizeHistoryRetentionDays(result.history_retention_days);
     result.online_threshold_seconds = normalizeOnlineThresholdSeconds(result.online_threshold_seconds);
+    result.public_history_hours = normalizePublicHistoryHours(result.public_history_hours);
     result.resource_alert_rules = normalizeResourceAlertRules(result.resource_alert_rules);
     result.show_three_net_details = normalizeBooleanSetting(result.show_three_net_details, defaults.show_three_net_details);
     result.wss_report_enabled = normalizeBooleanSetting(result.wss_report_enabled, defaults.wss_report_enabled);
@@ -707,6 +754,8 @@ export async function loadSiteSettings(db, options = {}) {
     result.notification_webhook_headers = normalizeNotificationWebhookHeaders(result.notification_webhook_headers);
     result.notification_webhook_body = normalizeNotificationWebhookBody(result.notification_webhook_body);
     result.notification_template = normalizeNotificationTemplate(result.notification_template);
+    result.notification_custom_script = normalizeNotificationCustomScript(result.notification_custom_script);
+    result.notification_event_emojis = normalizeNotificationEventEmojis(result.notification_event_emojis);
     result.notification_timezone = normalizeNotificationTimezone(result.notification_timezone);
     result.expire_notification_time = normalizeExpireNotificationTime(result.expire_notification_time);
     result.traffic_report_enabled = normalizeBooleanSetting(result.traffic_report_enabled);
@@ -827,12 +876,15 @@ export async function saveSiteOptions(db, updates) {
   siteOptions.wss_report_enabled = normalizeBooleanSetting(siteOptions.wss_report_enabled, defaults.wss_report_enabled);
   siteOptions.wss_report_hours = normalizeWssReportHours(siteOptions.wss_report_hours);
   siteOptions.frontend_ws_timeout_minutes = normalizeFrontendWsTimeoutMinutes(siteOptions.frontend_ws_timeout_minutes);
+  siteOptions.public_history_hours = normalizePublicHistoryHours(siteOptions.public_history_hours);
   siteOptions.notification_webhook_enabled = normalizeBooleanSetting(siteOptions.notification_webhook_enabled);
   siteOptions.notification_webhook_method = normalizeNotificationWebhookMethod(siteOptions.notification_webhook_method);
   siteOptions.notification_webhook_format = normalizeNotificationWebhookFormat(siteOptions.notification_webhook_format);
   siteOptions.notification_webhook_headers = normalizeNotificationWebhookHeaders(siteOptions.notification_webhook_headers);
   siteOptions.notification_webhook_body = normalizeNotificationWebhookBody(siteOptions.notification_webhook_body);
   siteOptions.notification_template = normalizeNotificationTemplate(siteOptions.notification_template);
+  siteOptions.notification_custom_script = normalizeNotificationCustomScript(siteOptions.notification_custom_script);
+  siteOptions.notification_event_emojis = normalizeNotificationEventEmojis(siteOptions.notification_event_emojis);
   siteOptions.notification_timezone = normalizeNotificationTimezone(siteOptions.notification_timezone);
   siteOptions.expire_notification_time = normalizeExpireNotificationTime(siteOptions.expire_notification_time);
   siteOptions.traffic_report_enabled = normalizeBooleanSetting(siteOptions.traffic_report_enabled);

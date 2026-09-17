@@ -254,6 +254,16 @@
               <option v-for="option in onlineThresholdSecondOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </div>
+          <div class="form-group flex-1">
+            <label class="form-label">
+              {{ trans.publicHistoryHours }}
+              <HelpTooltip :text="trans.publicHistoryHoursTip" />
+            </label>
+            <select v-model="settings.public_history_hours" class="form-select">
+              <option value="">{{ trans.publicHistoryHourAuto }}</option>
+              <option v-for="option in publicHistoryHourOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -427,6 +437,56 @@
               rows="5"
               placeholder="{{emoji}}【ProbeDeck】{{event}}\n\n{{message}}\n\n{{time}}"
             ></textarea>
+          </div>
+        </div>
+
+        <div class="section-subtitle mt-4" style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+          <span>{{ trans.eventEmojis || 'Event Emojis' }}</span>
+          <HelpTooltip :text="trans.eventEmojisTip || ''" />
+        </div>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.eventEmojiOffline || 'Offline' }}</label>
+            <input v-model.trim="settings.notification_event_emojis.offline" type="text" maxlength="16" class="form-input" :placeholder="trans.eventEmojiPlaceholder || 'Default'">
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.eventEmojiRecover || 'Recovery' }}</label>
+            <input v-model.trim="settings.notification_event_emojis.recover" type="text" maxlength="16" class="form-input" :placeholder="trans.eventEmojiPlaceholder || 'Default'">
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.eventEmojiExpire || 'Expiration' }}</label>
+            <input v-model.trim="settings.notification_event_emojis.expire" type="text" maxlength="16" class="form-input" :placeholder="trans.eventEmojiPlaceholder || 'Default'">
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.eventEmojiAlert || 'Resource alert' }}</label>
+            <input v-model.trim="settings.notification_event_emojis.alert" type="text" maxlength="16" class="form-input" :placeholder="trans.eventEmojiPlaceholder || 'Default'">
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.eventEmojiTraffic || 'Traffic report' }}</label>
+            <input v-model.trim="settings.notification_event_emojis.traffic" type="text" maxlength="16" class="form-input" :placeholder="trans.eventEmojiPlaceholder || 'Default'">
+          </div>
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.eventEmojiTest || 'Test' }}</label>
+            <input v-model.trim="settings.notification_event_emojis.test" type="text" maxlength="16" class="form-input" :placeholder="trans.eventEmojiPlaceholder || 'Default'">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label">
+              {{ trans.customJsScript || 'Custom JavaScript' }}
+              <HelpTooltip :text="trans.customJsScriptTip || ''" />
+            </label>
+            <textarea
+              v-model="settings.notification_custom_script"
+              class="form-textarea"
+              rows="8"
+              spellcheck="false"
+              autocomplete="off"
+              :placeholder="trans.customJsScriptPlaceholder || ''"
+              style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace; font-size: 12.5px; line-height: 1.55;"
+            ></textarea>
+            <div class="text-muted text-sm mt-1">{{ trans.customJsScriptHint || '' }}</div>
           </div>
         </div>
 
@@ -707,7 +767,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import HelpTooltip from '../../../components/HelpTooltip.vue'
-import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY, HISTORY_RETENTION_DAY_OPTIONS, ONLINE_THRESHOLD_SECOND_OPTIONS } from '../../../utils/constants.js'
+import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY, HISTORY_RETENTION_DAY_OPTIONS, ONLINE_THRESHOLD_SECOND_OPTIONS, PUBLIC_HISTORY_HOUR_OPTIONS } from '../../../utils/constants.js'
 import { currentLang } from '../../../utils/i18n.js'
 import { PING_NODE_FIELDS, validatePingNode } from '../../../utils/pingNode.js'
 
@@ -835,6 +895,15 @@ const onlineThresholdSecondOptions = computed(() => (
     label: props.trans.onlineThresholdSecondOption
       ? props.trans.onlineThresholdSecondOption.replace('{seconds}', seconds)
       : `${seconds} s`
+  }))
+))
+
+const publicHistoryHourOptions = computed(() => (
+  PUBLIC_HISTORY_HOUR_OPTIONS.map(hours => ({
+    value: String(hours),
+    label: props.trans.publicHistoryHourOption
+      ? props.trans.publicHistoryHourOption.replace('{days}', hours / 24)
+      : `${hours / 24} days`
   }))
 ))
 

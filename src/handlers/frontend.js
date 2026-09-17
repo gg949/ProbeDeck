@@ -293,17 +293,27 @@ function normalizeThemeAssetUrls(html) {
 }
 
 // 第三方主题品牌替换：主题内置的 CF-Server-Monitor 字样 → ProbeDeck
-const THEME_BRAND_PAIRS = [
-  ['github.com/huilang-me/CF-Server-Monitor', 'github.com/gg949/ProbeDeck'],
-  ['CF-Server-Monitor', 'ProbeDeck'],
-  ['CF Server Monitor', 'ProbeDeck']
+// ① 完整仓库 URL 先做子串替换（品牌链接指向 gg949/ProbeDeck）
+// ② 裸品牌词改用带边界正则：前后不能紧邻 [A-Za-z0-9_/-]，避免把主题署名链接
+//    （如 github.com/作者/Horizon-CF-Server-Monitor）误伤成 404 死链——
+//    署名应保持指向主题源仓库，只有品牌部分归属 ProbeDeck
+const THEME_BRAND_URL_PAIRS = [
+  ['github.com/huilang-me/CF-Server-Monitor', 'github.com/gg949/ProbeDeck']
+];
+
+const THEME_BRAND_PATTERNS = [
+  [/(?<![A-Za-z0-9_/-])CF-Server-Monitor(?![A-Za-z0-9_/-])/g, 'ProbeDeck'],
+  [/(?<![A-Za-z0-9_/-])CF Server Monitor(?![A-Za-z0-9_/-])/g, 'ProbeDeck']
 ];
 
 function rebrandThemeContent(text) {
   if (!text || typeof text !== 'string') return text;
   let out = text;
-  for (const [from, to] of THEME_BRAND_PAIRS) {
+  for (const [from, to] of THEME_BRAND_URL_PAIRS) {
     if (out.includes(from)) out = out.split(from).join(to);
+  }
+  for (const [pattern, to] of THEME_BRAND_PATTERNS) {
+    out = out.replace(pattern, to);
   }
   return out;
 }

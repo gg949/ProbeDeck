@@ -63,6 +63,7 @@ with the original — existing probe agents need no changes, and the theme ecosy
 - **🔒 100% local data** — everything stays in a local SQLite database: no cloud dependency, no quotas; backup = copy one directory
 - **🛡️ Secure by design** — probes only report outbound: no inbound port, no remote-command capability; even a compromised panel can never touch your monitored machines
 - **🔔 Rich notification channels** — Telegram / WeCom / Feishu / DingTalk / Bark / ServerChan / WxPusher / Gotify / OneBot / custom Webhook
+- **🧩 Notification boost** — per-event emoji for offline / recovery / expiration / resource-alert / traffic / test events, plus custom JavaScript notification scripts (the `sendMessage` / `sendEvent` contract) to reach any push service
 - **🎨 Theme ecosystem** — compatible with every original CFSM theme (one-click install from the Theme Store); custom CSS / JS / background image supported
 - **🔄 One-click Cloudflare migration** — the built-in "Migrate from Cloudflare" tool moves all your D1 data over intact (servers, history, settings, password)
 - **🌍 Automatic region detection** — built-in MaxMind GeoLite2 offline database; country flags out of the box
@@ -329,6 +330,7 @@ History retention is **configurable** (two ways; the panel setting wins):
 1. **Panel setting (recommended)**: Admin → Settings → Display options → "History retention days" — 7 / 14 / 30 / 60 / 90 / 180 / 365 days ("auto" uses the default of 14);
 2. Env var `HISTORY_RETENTION_DAYS=30` (handy for batch deployments; used when the panel is set to "auto").
 Internally it rotates tables every "retention ÷ 2" days, so the database stays small.
+Guests (not logged in) can view the last **24 hours** of history by default; widen it in Admin → Settings → Display options → "Public history range" (1 / 2 / 4 / 7 / 14 / 30 days). Logged-in admins are never limited by this setting.
 
 ## Run from Source (without Docker)
 

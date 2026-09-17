@@ -433,7 +433,7 @@ import { t, useTranslation } from '../../utils/i18n'
 import { PING_NODE_FIELDS, validatePingNode } from '../../utils/pingNode.js'
 import { normalizeDisplayMode, resolveDisplayMode } from '../../utils/displayMode.js'
 import { applyMikusThemeOptions } from '../../utils/themeOptions.js'
-import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY, ONLINE_THRESHOLD_SECOND_OPTIONS } from '../../utils/constants.js'
+import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY, ONLINE_THRESHOLD_SECOND_OPTIONS, PUBLIC_HISTORY_HOUR_OPTIONS } from '../../utils/constants.js'
 import { usePasswordVisibility } from '../../composables/usePasswordVisibility'
 import { useTurnstile } from './composables/useTurnstile'
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../../utils/server.js'
@@ -561,6 +561,30 @@ const normalizeOnlineThresholdSecondsSetting = (value) => {
   if (value === undefined || value === null || value === '') return ''
   const seconds = Number(value)
   return ONLINE_THRESHOLD_SECOND_OPTIONS.includes(seconds) ? String(seconds) : ''
+}
+
+const normalizePublicHistoryHoursSetting = (value) => {
+  if (value === undefined || value === null || value === '') return ''
+  const hours = Number(value)
+  return PUBLIC_HISTORY_HOUR_OPTIONS.includes(hours) ? String(hours) : ''
+}
+
+const NOTIFICATION_EVENT_EMOJI_KEYS = ['offline', 'recover', 'expire', 'alert', 'traffic', 'test']
+
+const normalizeNotificationEventEmojisSetting = (value) => {
+  let source = value
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source)
+    } catch (_) {
+      source = null
+    }
+  }
+  if (!source || typeof source !== 'object' || Array.isArray(source)) source = {}
+  return Object.fromEntries(NOTIFICATION_EVENT_EMOJI_KEYS.map(key => {
+    const raw = source[key]
+    return [key, typeof raw === 'string' ? raw.trim().slice(0, 16) : '']
+  }))
 }
 
 const normalizeFrontendWsTimeoutMinutesSetting = (value) => {
@@ -792,6 +816,7 @@ const settings = ref({
   long_history_points: String(HISTORY.DEFAULT_LONG_RANGE_POINTS),
   history_retention_days: '',
   online_threshold_seconds: '',
+  public_history_hours: '',
   tg_notify: '0',
   expire_reminder: '0',
   resource_alert_rules: [],
@@ -807,6 +832,8 @@ const settings = ref({
   notification_webhook_headers: '',
   notification_webhook_body: '{\n  "title": "{{emoji}} {{event}}",\n  "content": "{{notification}}"\n}',
   notification_template: '{{emoji}}【ProbeDeck】{{event}}\n\n{{message}}\n\n{{time}}',
+  notification_custom_script: '',
+  notification_event_emojis: {},
   turnstile_enabled: false,
   turnstile_site_key: '',
   turnstile_secret_key: '',
@@ -1244,6 +1271,7 @@ const loadSettings = async () => {
         long_history_points: normalizeLongHistoryPointsSetting(settingsData.long_history_points),
         history_retention_days: normalizeHistoryRetentionDaysSetting(settingsData.history_retention_days),
         online_threshold_seconds: normalizeOnlineThresholdSecondsSetting(settingsData.online_threshold_seconds),
+        public_history_hours: normalizePublicHistoryHoursSetting(settingsData.public_history_hours),
         tg_notify: normalizeTgNotifySetting(settingsData.tg_notify),
         expire_reminder: normalizeExpireReminderSetting(settingsData.expire_reminder),
         resource_alert_rules: normalizeResourceAlertRulesSetting(settingsData.resource_alert_rules),
@@ -1259,6 +1287,8 @@ const loadSettings = async () => {
         notification_webhook_headers: settingsData.notification_webhook_headers || '',
         notification_webhook_body: settingsData.notification_webhook_body || '{\n  "title": "{{emoji}} {{event}}",\n  "content": "{{notification}}"\n}',
         notification_template: settingsData.notification_template || '{{emoji}}【ProbeDeck】{{event}}\n\n{{message}}\n\n{{time}}',
+        notification_custom_script: settingsData.notification_custom_script || '',
+        notification_event_emojis: normalizeNotificationEventEmojisSetting(settingsData.notification_event_emojis),
         turnstile_enabled: settingsData.turnstile_enabled === 'true',
         turnstile_login_enabled: settingsData.turnstile_login_enabled === 'true',
         turnstile_site_key: settingsData.turnstile_site_key || '',
@@ -1428,6 +1458,7 @@ const saveSettings = async () => {
       long_history_points: normalizeLongHistoryPointsSetting(settings.value.long_history_points),
       history_retention_days: normalizeHistoryRetentionDaysSetting(settings.value.history_retention_days),
       online_threshold_seconds: normalizeOnlineThresholdSecondsSetting(settings.value.online_threshold_seconds),
+      public_history_hours: normalizePublicHistoryHoursSetting(settings.value.public_history_hours),
       tg_notify: normalizeTgNotifySetting(settings.value.tg_notify),
       expire_reminder: normalizeExpireReminderSetting(settings.value.expire_reminder),
       resource_alert_rules: normalizeResourceAlertRulesSetting(settings.value.resource_alert_rules),
@@ -1443,6 +1474,8 @@ const saveSettings = async () => {
       notification_webhook_headers: settings.value.notification_webhook_headers,
       notification_webhook_body: settings.value.notification_webhook_body,
       notification_template: settings.value.notification_template,
+      notification_custom_script: settings.value.notification_custom_script || '',
+      notification_event_emojis: normalizeNotificationEventEmojisSetting(settings.value.notification_event_emojis),
       turnstile_enabled: settings.value.turnstile_enabled ? 'true' : 'false',
       turnstile_login_enabled: settings.value.turnstile_login_enabled ? 'true' : 'false',
       turnstile_site_key: settings.value.turnstile_site_key,
@@ -2304,6 +2337,8 @@ const sendTestNotification = async () => {
       notification_webhook_headers: settings.value.notification_webhook_headers,
       notification_webhook_body: settings.value.notification_webhook_body,
       notification_template: settings.value.notification_template,
+      notification_custom_script: settings.value.notification_custom_script || '',
+      notification_event_emojis: normalizeNotificationEventEmojisSetting(settings.value.notification_event_emojis),
       notification_timezone: normalizeNotificationTimezoneSetting(settings.value.notification_timezone),
       expire_notification_time: normalizeExpireNotificationTimeSetting(settings.value.expire_notification_time)
     })

@@ -354,7 +354,7 @@ import TerminalHeader from '../components/TerminalHeader.vue'
 import Footer from '../components/Footer.vue'
 import OsIcon from '../components/OsIcon.vue'
 import LiveConnectionTimeoutModal from '../components/LiveConnectionTimeoutModal.vue'
-import { fetchServerDetail, fetchAllHistory, fetchConfig, formatBytes, isAdminLoggedIn, createLiveSocket, getFlagRegionCode, isServerOnline, normalizeLiveSocketTimeoutMinutes } from '../utils/api.js'
+import { fetchServerDetail, fetchAllHistory, fetchConfig, formatBytes, isAdminLoggedIn, createLiveSocket, getFlagRegionCode, isServerOnline, normalizeLiveSocketTimeoutMinutes, getPublicHistoryHours } from '../utils/api.js'
 import { getTrafficUsageBytes } from '../composables/useServerCardData'
 import { getPublicAssetUrl } from '../utils/config.js'
 import Chart from 'chart.js/auto'
@@ -1680,7 +1680,7 @@ const fetchCurrentStatus = async (incomingData, options = {}) => {
 
 const setTimeRange = (hours) => {
   clearLatestReportReplayTimers()
-  if (hours > 24 && !isAdminLoggedIn()) {
+  if (hours > getPublicHistoryHours() && !isAdminLoggedIn()) {
     showLoginModal.value = true
     return
   }

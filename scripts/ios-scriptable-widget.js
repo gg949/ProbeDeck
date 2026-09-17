@@ -1,4 +1,4 @@
-// CF Server Monitor - iOS Scriptable widget
+// ProbeDeck - iOS Scriptable widget
 // Paste this file into Scriptable, then edit CONFIG.baseURL.
 // Server id is required. Set the Scriptable widget parameter to the server id:
 //   server-id
@@ -393,7 +393,7 @@ function buildWidget(data) {
 function errWidget(message) {
   const widget = baseWidget();
   widget.setPadding(14, 15, 14, 15);
-  addText(widget, "CF Server Monitor", Font.boldSystemFont(14), COL.red, 1);
+  addText(widget, "ProbeDeck", Font.boldSystemFont(14), COL.red, 1);
   widget.addSpacer(8);
   addText(widget, message, Font.systemFont(11), COL.fg, 3);
   return widget;

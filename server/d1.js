@@ -77,6 +77,12 @@ export function createD1Database(filePath) {
     prepare(sql) {
       return makeStatement(sql, []);
     },
+    // 多语句/事务控制（BEGIN IMMEDIATE / COMMIT / ROLLBACK 等）：直接透传 better-sqlite3。
+    // src 侧的在库操作（如表轮换）据此获得原子性保障；D1 环境没有 exec，调用方需自行降级。
+    async exec(sql) {
+      db.exec(sql);
+      return { success: true };
+    },
     // 预留：原项目目前未使用 batch/exec，如上游新增可在此扩展实现
     async batch(statements) {
       return Promise.all(statements.map((stmt) => stmt.all()));

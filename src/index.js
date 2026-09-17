@@ -6,7 +6,7 @@ import { serveFrontend } from './handlers/frontend.js';
 import { handleUpdate, handleWebSocketUpgrade, handleUpdateWebSocketUpgrade } from './handlers/update.js';
 import { handleServerAPI, handleServersAPI } from './handlers/dashboard.js';
 import { handleTheme } from './handlers/theme.js';
-import { isValidThemeOptions, loadSettings, loadSiteSettings, loadAppearanceOptions, normalizeFrontendWsTimeoutMinutes, normalizeLongHistoryPoints, resolveHistoryRetentionDays, resolveOnlineThresholdSeconds, saveThemeOptions, setDebug, debug, getSettingByKey } from './utils/settings.js';
+import { isValidThemeOptions, loadSettings, loadSiteSettings, loadAppearanceOptions, normalizeFrontendWsTimeoutMinutes, normalizeLongHistoryPoints, resolveHistoryRetentionDays, resolveOnlineThresholdSeconds, resolvePublicHistoryHours, saveThemeOptions, setDebug, debug, getSettingByKey } from './utils/settings.js';
 import { omitNullLossProbeFields } from './handlers/dashboard.js';
 import { checkAuth, simpleAuthResponse } from './middleware/auth.js';
 import { getServerDetail, getMetricsHistoryCache, setMetricsHistoryCache, getCacheDuration } from './utils/cache.js';
@@ -104,7 +104,8 @@ async function isTurnstileVerified(request, env, sys) {
 async function fetchHistoryData(env, request, id, hours, columns, sys = null) {
   if (!id) return createBadRequestResponse('Missing ID');
 
-  const ALLOWED_HOURS = [0.167, 0.5, 1, 6, 12, 24, 48, 96, 168];
+  // 0.167=10m / 0.5=30m / 336=14d / 720=30d（336、720 为 VPS 版补充，前端详情页已有对应选项）
+  const ALLOWED_HOURS = [0.167, 0.5, 1, 6, 12, 24, 48, 96, 168, 336, 720];
   if (!ALLOWED_HOURS.includes(hours)) {
     return createBadRequestResponse('Invalid hours parameter');
   }
@@ -118,7 +119,8 @@ async function fetchHistoryData(env, request, id, hours, columns, sys = null) {
     return simpleAuthResponse();
   }
   
-  if (hours > 24 && !isLoggedIn) {
+  // 访客可查看的历史范围上限（面板设置 public_history_hours，默认 24 小时；登录用户不受限）
+  if (hours > resolvePublicHistoryHours(sys?.public_history_hours) && !isLoggedIn) {
     return createUnauthorizedResponse();
   }
   
@@ -334,6 +336,7 @@ export default {
           frontend_ws_timeout_minutes: Number(normalizeFrontendWsTimeoutMinutes(sys.frontend_ws_timeout_minutes)),
           long_history_points: Number(normalizeLongHistoryPoints(sys.long_history_points)),
           online_threshold_seconds: resolveOnlineThresholdSeconds(sys.online_threshold_seconds),
+          public_history_hours: resolvePublicHistoryHours(sys.public_history_hours),
           latency_window: {
             points: DASHBOARD_LATENCY_WINDOW_POINTS,
             hours: DASHBOARD_LATENCY_WINDOW_HOURS

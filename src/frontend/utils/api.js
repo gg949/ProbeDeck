@@ -251,8 +251,16 @@ export const createLiveSocket = (subscribe, handlers = {}, apiIndex = 0, serverI
     connect()
   }
 
+  // 非浏览器环境（SSR/测试）可能没有 window.addEventListener，使用时先探测
+  const canUseWindowEvents = () => (
+    typeof window !== 'undefined' &&
+    typeof window.addEventListener === 'function' &&
+    typeof window.removeEventListener === 'function'
+  )
+
   const attachOnlineListener = () => {
     if (onlineListenerAttached) return
+    if (!canUseWindowEvents()) return
     onlineListenerAttached = true
     window.addEventListener('online', handleOnline)
   }
@@ -260,6 +268,7 @@ export const createLiveSocket = (subscribe, handlers = {}, apiIndex = 0, serverI
   const detachOnlineListener = () => {
     if (!onlineListenerAttached) return
     onlineListenerAttached = false
+    if (!canUseWindowEvents()) return
     window.removeEventListener('online', handleOnline)
   }
 
@@ -321,6 +330,15 @@ export const setOnlineThresholdMs = (ms) => {
 }
 
 export const getOnlineThresholdMs = () => onlineThresholdMs
+
+let publicHistoryHours = TIME.PUBLIC_HISTORY_HOURS
+
+export const setPublicHistoryHours = (hours) => {
+  const value = Number(hours)
+  if (Number.isFinite(value) && value > 0) publicHistoryHours = value
+}
+
+export const getPublicHistoryHours = () => publicHistoryHours
 
 export const isServerOnline = (server, now = Date.now()) => {
   const lastUpdated = normalizeTimestamp(server?.report_timestamp ?? server?.last_updated)
