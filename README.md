@@ -12,6 +12,8 @@
 
 [🔗 在线演示](https://probedeck.guoba.cc.cd/) · [🚀 快速开始](#快速开始) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md)
 
+**[English](README.en.md) | 中文**
+
 </div>
 
 ---
