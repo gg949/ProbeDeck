@@ -64,12 +64,13 @@ with the original — existing probe agents need no changes, and the theme ecosy
 - **🛡️ Secure by design** — probes only report outbound: no inbound port, no remote-command capability; even a compromised panel can never touch your monitored machines
 - **🔔 Rich notification channels** — Telegram / WeCom / Feishu / DingTalk / Bark / ServerChan / WxPusher / Gotify / OneBot / custom Webhook
 - **🧩 Notification boost** — per-event emoji for offline / recovery / expiration / resource-alert / traffic / test events, plus custom JavaScript notification scripts (the `sendMessage` / `sendEvent` contract) to reach any push service
+- **📊 Traffic reports** — daily / weekly / monthly reports, each toggleable (uncheck all to disable); delivered on schedule in your notification timezone (weekly on Mondays, monthly on the 1st)
 - **🎨 Theme ecosystem** — compatible with every original CFSM theme (one-click install from the Theme Store); custom CSS / JS / background image supported
 - **🔄 One-click Cloudflare migration** — the built-in "Migrate from Cloudflare" tool moves all your D1 data over intact (servers, history, settings, password)
 - **🌍 Automatic region detection** — built-in MaxMind GeoLite2 offline database; country flags out of the box
 
 > Everything else works exactly like the original: real-time monitoring, WebSocket push, historical charts,
-> offline alerts, expiry & traffic notifications, latency/packet-loss checks against China's three major ISPs,
+> offline alerts, expiry reminders, traffic reports, latency/packet-loss checks against China's three major ISPs,
 > map view, dark mode, Chinese/English UI, probe auto-update, data backup & import/export.
 
 ## Quick Start
@@ -298,6 +299,15 @@ so the frontend and third-party themes read it the same way — no adaptation ne
 
 - **HTTP mode** (default): the probe reports at a fixed interval. This port removes the original Cloudflare limits — the minimum is **1 second** (Admin panel → Edit server → report interval; choices: 1 / 3 / 5 / 10 / 15 / 20 / 30 / 60 / 120 / 180 seconds).
 - **WSS mode** (near-real-time): enable "Agent WSS reporting" with all hours selected, and the probe keeps a WebSocket connection open, pushing data as fast as **1 second** (Edit server → WSS report interval). The original limited hours due to Cloudflare quotas; on your own VPS just enable **all 24 hours**.
+
+## Notifications & Traffic Reports
+
+Configured under Admin → Settings → Notifications; everything is computed locally — no cloud dependency:
+
+- **Delivery methods**: built-in channels (Telegram / WeCom / Feishu / DingTalk / Bark / ServerChan / WxPusher / Gotify / OneBot), or a **custom Webhook** (URL + body template with `{{variables}}` auto-replaced); you can also paste a **custom JavaScript notification script** to reach any push service (the `sendMessage(message, title)` contract, optional `sendEvent(event)`, executed in a server-side sandbox). A non-empty JS script takes priority and handles all notifications.
+- **Per-event emoji**: customize the emoji for offline / recovery / expiration / resource-alert / traffic / test events.
+- **Traffic reports**: check the types you want — **daily** (every day) / **weekly** (Mondays) / **monthly** (1st of month); uncheck all to disable. Sent at the "notification time" in your notification timezone, based on network-interface counters (a server or probe restart may reset them and affect the current period).
+- Enabling reports requires at least one working delivery method; use "Send test" to verify your setup.
 
 ## Environment Variables
 
