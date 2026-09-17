@@ -1,67 +1,72 @@
+<div align="center">
+
 # ProbeDeck · 探针台
+
+[![Release](https://img.shields.io/github/v/release/gg949/ProbeDeck?style=flat-square)](https://github.com/gg949/ProbeDeck/releases)
+[![License](https://img.shields.io/github/license/gg949/ProbeDeck?style=flat-square)](LICENSE)
+[![Docker Build](https://img.shields.io/github/actions/workflow/status/gg949/ProbeDeck/docker-publish.yml?style=flat-square&label=docker%20build)](https://github.com/gg949/ProbeDeck/actions)
+[![Stars](https://img.shields.io/github/stars/gg949/ProbeDeck?style=flat-square)](https://github.com/gg949/ProbeDeck/stargazers)
+[![ghcr.io](https://img.shields.io/badge/ghcr.io-gg949%2Fprobedeck-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/gg949/ProbeDeck/pkgs/container/probedeck)
+
+**把探针面板搬进你自己的 Docker** — 单容器部署 · 数据全本地 · 上报最低 1 秒 · 1C1G 就能跑
+
+[🔗 在线演示](https://probedeck.guoba.cc.cd/) · [🚀 快速开始](#快速开始) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md)
+
+</div>
+
+---
 
 **ProbeDeck** 是 [CF-Server-Monitor](https://github.com/huilang-me/CF-Server-Monitor) 的 **Docker / VPS 移植版**。
 
 原版运行在 Cloudflare Workers + D1 + Durable Objects 上；本移植版把整个后端搬进一个
 **Node.js 单进程**（better-sqlite3 + ws），**前端、REST API、探针脚本与原版完全一致**，
-被控端探针无需任何改动。
+被控端探针无需任何改动，主题生态完全通用。
 
 > 适配层原理：`server/` 目录在 Node 里模拟了 Workers 的运行时环境
 > （D1→SQLite、Durable Objects→单进程实例、Cron→定时器、Workers Assets→静态文件），
 > `src/` 业务代码保持原样，方便跟随上游更新。
 
-## 📦 部署依赖与资源消耗 (Requirements & Quotas)
+## 📸 界面预览
 
-### 1. 运行环境依赖 (Requirements)
-* **主控服务端 (Server)**：
-  * **操作系统**：Linux (Debian 11+ / Ubuntu 20.04+ / Alpine Linux)
-  * **运行时**：Docker & Docker Compose（或 Node.js 18+ 环境）
-  * **反向代理**：Caddy（推荐，开箱即用自动 HTTPS 与 WS 支持）或 Nginx
-  * **存储引擎**：SQLite 3（轻量单文件存储，无额外数据库中间件负担）
-* **被控端 (Agent)**：
-  * **架构支持**：x86_64 (amd64) / aarch64 (arm64)
-  * **依赖项**：无任何外部依赖，支持以非 Root 普通用户权限常驻运行。
+**实时监控总览**
 
-### 2. 资源配额与性能消耗 (Resource Consumption)
-* **内存占用**：
-  * **Agent 内存**：常驻仅占用 **约 8MB ~ 15MB RSS**，极低系统开销。
-  * **主控服务端**：Docker 容器内存占用通常维持在 **30MB ~ 60MB**。
-* **CPU 负载**：日常监控周期内 Agent 的 CPU 消耗低于 **0.1%**，对业务机型完全无感知。
-* **网络流量配额**：
-  * 单机数据包体积经轻量 JSON 压缩，上报带宽消耗平均约 **0.5 KB/s ~ 1.5 KB/s**（单台节点每月仅产生约 **1.5 GB ~ 3 GB** 内部监控流量）。
-* **磁盘与数据归档**：
-  * SQLite 内置历史指标轮换（Retention）清理策略，定期按策略修剪高频历史日志，主控数据库体积长期稳定可控。
+![实时监控总览](docs/screenshots/dashboard.png)
 
-## 功能
+**单机详情与实时图表**
 
-与原版一致：实时监控、WebSocket 秒级推送、历史数据与图表、离线告警、到期通知、
-三网延迟/丢包、地图展示、主题商店（7+ 第三方主题）、深色模式、中英文、探针自动更新、数据备份导入导出等。
+![单机详情与实时图表](docs/screenshots/server-detail.png)
 
-本移植版特有的：
+**主题商店（兼容原版全部主题）**
 
-- **开箱即用**：不设任何环境变量即可启动——`API_SECRET` 首次启动自动生成并打印在日志里
-- **地区自动识别**：内置 MaxMind GeoLite2 数据库自动识别探针所在国家（可切换 ipinfo.io）
-- 单容器部署，一条命令跑起来；数据落本地 SQLite，备份 = 复制 `data/` 目录
-- 同一套探针脚本，支持 Linux / Alpine / OpenWrt / macOS / 群晖 / fnOS / Windows
+![主题商店](docs/screenshots/theme-store.png)
 
-## ⚙️ 架构指标与告警设计 (Architecture & Reliability)
+<details>
+<summary>🖼️ 展开更多截图（服务器编辑面板 / 系统设置）</summary>
 
-### 1. 采集延迟与数据流转 (Latency & Data Pipeline)
-* **上报频次**：Agent 默认每 **1~3 秒** 向服务端单向推流增量系统指标。
-* **分发延迟**：服务端采用原生 WebSocket 广播（`101 Switching Protocols`）+ 内存级推流通道，前台大盘面板端到端渲染延迟低于 **100ms**。
-* **网络穿透**：全链路支持 HTTP/2 与 HTTP/3 (QUIC) 反向代理，网络抖动自适应平滑。
+**编辑服务器（采集/上报间隔、计费设置、三网节点）**
 
-### 2. 离线判定与误报控制 (False Alarm Mitigation)
-* **双阶离线检测机制**：
-  * **失联软缓冲**：当主控持续 **30 秒** 未收到 Agent 上报数据包时，触发失联判定，避免因公网偶发抖动导致的频繁闪断与误报。
-  * **时钟校准容错**：握手握有严格的 UTC 纪元时间戳校验，杜绝因被控端与主控系统时间漂移造成的假离线或数据倒流。
-* **主动保活心跳**：服务端内置 **25 秒** 双向 Ping/Pong 链路检测机制，可主动识别并清理 TCP 半打开死连接，防止反代（如 Caddy/Nginx）提前掐断空闲长连接。
+![编辑服务器](docs/screenshots/edit-server.png)
 
-### 3. 告警通道集成 (Alerting Channels)
-ProbeDeck 支持在节点离线、CPU/内存/磁盘高载或流量超标时触发多通道告警：
-* **Telegram Bot**：支持配置 Bot Token 与 Chat ID 发送富文本卡片通知。
-* **Webhook 协议**：支持钉钉（DingTalk）、飞书（Lark）、企业微信及自定义 RESTful API 端点回调。
-* **静默与防打扰**：支持告警收敛与恢复通知，单节点故障在同一窗口期内不重复轰炸。
+**系统设置（通知渠道、WSS 上报时段、安全选项）**
+
+![系统设置](docs/screenshots/admin-settings.png)
+
+</details>
+
+## ✨ 特性
+
+- **🚀 一条命令部署** — 单容器跑起全部服务；`API_SECRET` 首次启动自动生成，零配置开箱即用
+- **🪶 极致轻量** — 面板 ~50-75MB 内存、探针仅 ~8MB（CPU 均值 <0.1%），1C1G 小鸡也能长期跑
+- **⚡ 秒级监控** — 上报间隔最低 **1 秒**，WSS 长连接实时推送；探针支持 Linux / Alpine / OpenWrt / macOS / 群晖 / fnOS / Windows
+- **🔒 数据全本地** — SQLite 全量落盘，无云依赖、无额度限制；备份 = 复制一个目录
+- **🛡️ 安全架构** — 探针纯单向上报、零入站端口、不接收任何服务器指令；面板被攻破也碰不到你的被控机器
+- **🔔 通知渠道齐全** — Telegram / 企业微信 / 飞书 / 钉钉 / Bark / Server酱 / WxPusher / Gotify / OneBot / 自定义 Webhook
+- **🎨 主题生态** — 兼容原版 CFSM 全部主题（主题商店一键安装），面板后台还支持自定义 CSS / JS / 背景图
+- **🔄 CF 一键迁移** — 面板内置「从 Cloudflare 迁移」：D1 全量数据搬迁（服务器、历史、设置、密码无损）
+- **🌍 地区自动识别** — 内置 MaxMind GeoLite2 离线库，探针位置自动显示国旗
+
+> 与原版功能完全一致：实时监控、WebSocket 秒级推送、历史数据与图表、离线告警、到期/流量通知、
+> 三网延迟/丢包、地图展示、深色模式、中英文、探针自动更新、数据备份导入导出等。
 
 ## 快速开始
 
@@ -283,8 +288,8 @@ server { listen 80; server_name monitor.example.com; location / { proxy_pass htt
 
 ## 上报间隔与实时性
 
-- **HTTP 模式**（默认）：探针每隔一段时间上报一次；本移植版已解除原版的 Cloudflare 限制，最小可设 **10 秒**（管理面板 → 编辑服务器 → 上报间隔）。
-- **WSS 模式**（准实时）：设置里开启「Agent WSS 上报」并勾选全部时段后，探针与面板保持 WebSocket 长连接，数据 **1~5 秒**推送一次（编辑服务器 → WSS 上报间隔）。原版因 Cloudflare 额度限制做了时段选择，VPS 部署无此限制，**24 小时全开即可**。
+- **HTTP 模式**（默认）：探针每隔一段时间上报一次；本移植版已解除原版的 Cloudflare 限制，最小可设 **1 秒**（管理面板 → 编辑服务器 → 上报间隔，可选 1 / 3 / 5 / 10 / 15 / 20 / 30 / 60 / 120 / 180 秒）。
+- **WSS 模式**（准实时）：设置里开启「Agent WSS 上报」并勾选全部时段后，探针与面板保持 WebSocket 长连接，数据最快 **1 秒**推送一次（编辑服务器 → WSS 上报间隔）。原版因 Cloudflare 额度限制做了时段选择，VPS 部署无此限制，**24 小时全开即可**。
 
 ## 环境变量
 
