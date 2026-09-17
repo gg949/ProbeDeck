@@ -599,6 +599,96 @@ export async function getLastRotationAt(db) {
   }
 }
 
+// 流量报告历史回补：在历史数据中查找「周期起点」附近的一条流量累计计数样本。
+// ① 优先取 [target - searchBack, target] 内不晚于目标时间的最新样本（完整周期）；
+// ② 找不到时取 [target, now] 内最早的样本（部分周期，由调用方标注起始日期）；
+// ③ 都找不到返回 null（报告回退为「暂无」）。
+// 兼容指标历史的两种查询模式：ID 分区范围（history_id_optimized）与 server_id+timestamp 索引。
+export async function getTrafficBaseline(db, server, targetTimestamp, searchBackMs) {
+  const serverId = server?.id;
+  const target = Number(targetTimestamp);
+  if (!serverId || !Number.isFinite(target) || target <= 0) return null;
+
+  let historyInfo;
+  try {
+    historyInfo = await getServerHistoryInfo(db, serverId, server);
+  } catch (_) {
+    return null;
+  }
+  if (!historyInfo.partitionId) return null;
+
+  const now = Date.now();
+  const serverStart = Number(historyInfo.startTimestamp) || 0;
+  const searchBack = Math.max(60 * 1000, Number(searchBackMs) || 0);
+  const searchStart = Math.max(target - searchBack, serverStart);
+
+  const history_id_optimized = await getSettingByKey(db, 'history_id_optimized', true);
+  const currentHasIndex = history_id_optimized ? false : await hasHistoryServerTimeIndex(db, 'metrics_history');
+  const currentUsesIdRange = history_id_optimized || !currentHasIndex;
+
+  const oldTableExists = !!await db.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='metrics_history_old'`
+  ).first();
+  const oldUsesIdRange = oldTableExists
+    ? (history_id_optimized || !await hasHistoryServerTimeIndex(db, 'metrics_history_old'))
+    : false;
+
+  const tables = [{ name: 'metrics_history', useIdRange: currentUsesIdRange }];
+  if (oldTableExists) tables.push({ name: 'metrics_history_old', useIdRange: oldUsesIdRange });
+
+  const queryNearest = async ({ name, useIdRange }, direction, fromTimestamp, toTimestamp) => {
+    if (!Number.isFinite(fromTimestamp) || !Number.isFinite(toTimestamp) || fromTimestamp > toTimestamp) return null;
+    const order = direction === 'asc' ? 'ASC' : 'DESC';
+    let row = null;
+    if (useIdRange) {
+      const { startId, endId } = getHistoryIdRange(historyInfo.partitionId, fromTimestamp, toTimestamp);
+      row = await db.prepare(`
+        SELECT timestamp, net_rx, net_tx FROM ${name}
+        WHERE id >= ? AND id <= ? AND server_id = ?
+        ORDER BY id ${order} LIMIT 1
+      `).bind(startId, endId, serverId).first();
+    } else {
+      row = await db.prepare(`
+        SELECT timestamp, net_rx, net_tx FROM ${name}
+        WHERE server_id = ?
+          AND typeof(timestamp) = 'integer'
+          AND timestamp >= ? AND timestamp <= ?
+        ORDER BY timestamp ${order} LIMIT 1
+      `).bind(serverId, fromTimestamp, toTimestamp).first();
+    }
+    if (!row) return null;
+    const timestamp = Number(row.timestamp);
+    if (!Number.isFinite(timestamp)) return null;
+    return {
+      timestamp,
+      rx_bytes: Math.max(0, Number(row.net_rx) || 0),
+      tx_bytes: Math.max(0, Number(row.net_tx) || 0)
+    };
+  };
+
+  // ① 完整周期起点：不晚于目标时间的最新样本
+  let best = null;
+  if (searchStart < target) {
+    for (const table of tables) {
+      const row = await queryNearest(table, 'desc', searchStart, target);
+      if (row && (!best || row.timestamp > best.timestamp)) best = row;
+    }
+  }
+  if (best) return { ...best, partial: false };
+
+  // ② 部分周期：目标时间之后最早可用的样本
+  const windowStart = Math.max(target, serverStart);
+  let earliest = null;
+  for (const table of tables) {
+    const row = await queryNearest(table, 'asc', windowStart, now);
+    if (row && (!earliest || row.timestamp < earliest.timestamp)) earliest = row;
+  }
+  if (earliest) return { ...earliest, partial: true };
+
+  return null;
+}
+
+
 async function setLastRotationAt(db, ts) {
   await db.prepare(
     "INSERT INTO settings (key, value) VALUES ('last_rotation_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"

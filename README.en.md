@@ -64,7 +64,7 @@ with the original — existing probe agents need no changes, and the theme ecosy
 - **🛡️ Secure by design** — probes only report outbound: no inbound port, no remote-command capability; even a compromised panel can never touch your monitored machines
 - **🔔 Rich notification channels** — Telegram / WeCom / Feishu / DingTalk / Bark / ServerChan / WxPusher / Gotify / OneBot / custom Webhook
 - **🧩 Notification boost** — per-event emoji for offline / recovery / expiration / resource-alert / traffic / test events, plus custom JavaScript notification scripts (the `sendMessage` / `sendEvent` contract) to reach any push service
-- **📊 Traffic reports** — daily / weekly / monthly reports, each toggleable (uncheck all to disable); delivered on schedule in your notification timezone (weekly on Mondays, monthly on the 1st)
+- **📊 Traffic reports** — daily / weekly / monthly reports, each toggleable (uncheck all to disable); delivered on schedule in your notification timezone (weekly on Mondays, monthly on the 1st); first-enable / post-interruption periods are backfilled from history
 - **🎨 Theme ecosystem** — compatible with every original CFSM theme (one-click install from the Theme Store); custom CSS / JS / background image supported
 - **🔄 One-click Cloudflare migration** — the built-in "Migrate from Cloudflare" tool moves all your D1 data over intact (servers, history, settings, password)
 - **🌍 Automatic region detection** — built-in MaxMind GeoLite2 offline database; country flags out of the box
@@ -306,7 +306,7 @@ Configured under Admin → Settings → Notifications; everything is computed lo
 
 - **Delivery methods**: built-in channels (Telegram / WeCom / Feishu / DingTalk / Bark / ServerChan / WxPusher / Gotify / OneBot), or a **custom Webhook** (URL + body template with `{{variables}}` auto-replaced); you can also paste a **custom JavaScript notification script** to reach any push service (the `sendMessage(message, title)` contract, optional `sendEvent(event)`, executed in a server-side sandbox). A non-empty JS script takes priority and handles all notifications.
 - **Per-event emoji**: customize the emoji for offline / recovery / expiration / resource-alert / traffic / test events.
-- **Traffic reports**: check the types you want — **daily** (every day) / **weekly** (Mondays) / **monthly** (1st of month); uncheck all to disable. Sent at the "notification time" in your notification timezone, based on network-interface counters (a server or probe restart may reset them and affect the current period).
+- **Traffic reports**: check the types you want — **daily** (every day) / **weekly** (Mondays) / **monthly** (1st of month); uncheck all to disable. Sent at the "notification time" in your notification timezone, based on network-interface counters (a server or probe restart may reset them and affect the current period). First-enable / post-interruption periods are backfilled from history data; partial coverage is marked with a start date.
 - Enabling reports requires at least one working delivery method; use "Send test" to verify your setup.
 
 ## Environment Variables

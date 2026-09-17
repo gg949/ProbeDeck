@@ -1,4 +1,4 @@
-import { getLatestMetricsForAllServers } from '../database/schema.js';
+import { getLatestMetricsForAllServers, getTrafficBaseline } from '../database/schema.js';
 import { updateDatabase } from '../database/updateDatabase.js';
 import { clearServersListCache, getAllServers } from '../utils/cache.js';
 import {
@@ -1184,6 +1184,28 @@ export function calculateTrafficDelta(current, previous) {
   return currentValue >= previousValue ? currentValue - previousValue : currentValue;
 }
 
+// 各报告类型的「周期起点」时间戳：日报=近 24 小时；周报=近 7 天；月报=上一个自然月（按通知时区，月长按日历）。
+export function getTrafficPeriodStartTimestamp(timestamp, type, timezone = 'UTC') {
+  const now = Number(timestamp) || Date.now();
+  if (type === 'daily') return now - DAY_MS;
+  if (type === 'weekly') return now - 7 * DAY_MS;
+  if (type === 'monthly') {
+    const parts = getZonedDateParts(now, timezone);
+    if (!parts) return now - 30 * DAY_MS;
+    const previousMonthDays = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, 0)).getUTCDate();
+    return now - previousMonthDays * DAY_MS;
+  }
+  return now;
+}
+
+// 历史回补行的覆盖起点标注（如「（自 09/28 起）」），日期按通知时区。
+function formatTrafficCoverageNote(baselineTimestamp, timezone) {
+  const parts = getZonedDateParts(baselineTimestamp, timezone);
+  if (!parts) return '';
+  const pad = value => String(value).padStart(2, '0');
+  return `（自 ${pad(Number(parts.month))}/${pad(Number(parts.day))} 起）`;
+}
+
 export function normalizeTrafficSnapshots(value) {
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value || '{}') : value;
@@ -1323,7 +1345,7 @@ export function buildTrafficReportContent(servers, rows, label) {
     totalRx += rx;
     totalTx += tx;
     measuredCount += 1;
-    lines.push(`${server.name}  ↓ ${formatTrafficBytes(rx)} + ↑ ${formatTrafficBytes(tx)}  = ${formatTrafficBytes(rx + tx)}`);
+    lines.push(`${server.name}  ↓ ${formatTrafficBytes(rx)} + ↑ ${formatTrafficBytes(tx)}  = ${formatTrafficBytes(rx + tx)}${usage.note ? ` ${usage.note}` : ''}`);
   }
 
   if (lines.length === 0) return null;
@@ -1416,6 +1438,15 @@ export async function checkTrafficReports(db, options = {}) {
 
   try {
     const usageRows = { daily: [], weekly: [], monthly: [] };
+    const periodSearchBacks = {
+      daily: DAY_MS,
+      weekly: 7 * DAY_MS,
+      monthly: Math.max(DAY_MS, now - getTrafficPeriodStartTimestamp(now, 'monthly', settings.notification_timezone))
+    };
+    const periodStarts = {};
+    for (const type of claimedReportTypes) {
+      periodStarts[type] = getTrafficPeriodStartTimestamp(now, type, settings.notification_timezone);
+    }
 
     for (const server of servers) {
       const metrics = latestMetrics.get(server.id);
@@ -1429,9 +1460,27 @@ export async function checkTrafficReports(db, options = {}) {
         settings.notification_timezone
       );
       for (const type of claimedReportTypes) {
-        usageRows[type].push(result.usage[type]
-          ? { server_id: server.id, ...result.usage[type] }
-          : { server_id: server.id, missing: true });
+        if (result.usage[type]) {
+          usageRows[type].push({ server_id: server.id, ...result.usage[type] });
+          continue;
+        }
+        // 无可用快照（首次启用或报告中断）：从历史数据回补周期起点，尽量给出完整周期数据
+        let backfill = null;
+        try {
+          backfill = await getTrafficBaseline(db, server, periodStarts[type], periodSearchBacks[type]);
+        } catch (backfillError) {
+          console.warn('[TrafficReport] history backfill failed:', backfillError);
+        }
+        if (backfill) {
+          usageRows[type].push({
+            server_id: server.id,
+            rx_bytes: calculateTrafficDelta(metrics.net_rx, backfill.rx_bytes),
+            tx_bytes: calculateTrafficDelta(metrics.net_tx, backfill.tx_bytes),
+            note: formatTrafficCoverageNote(backfill.timestamp, settings.notification_timezone)
+          });
+        } else {
+          usageRows[type].push({ server_id: server.id, missing: true });
+        }
       }
       if (result.changed) {
         await saveTrafficSnapshots(db, result.snapshots, server.id);

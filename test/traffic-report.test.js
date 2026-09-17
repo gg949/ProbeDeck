@@ -7,6 +7,7 @@ import {
   calculateTrafficDelta,
   getDueTrafficReportTypes,
   getTrafficPeriodKeys,
+  getTrafficPeriodStartTimestamp,
   normalizeTrafficSnapshots,
   updateTrafficSnapshots
 } from '../src/services/notification.js';
@@ -166,4 +167,34 @@ test('traffic report types resolve with legacy enabled fallback', () => {
   assert.deepEqual(resolveTrafficReportTypes({ traffic_report_types: '', traffic_report_enabled: 'false' }), []);
   assert.deepEqual(resolveTrafficReportTypes({}), []);
   assert.deepEqual(resolveTrafficReportTypes({ traffic_report_enabled: true }), ['daily', 'weekly', 'monthly']);
+});
+
+test('traffic report period starts follow calendar boundaries in the notification timezone', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const octoberFirstNoon = Date.UTC(2026, 9, 1, 4); // 2026-10-01 12:00 Beijing
+  assert.equal(getTrafficPeriodStartTimestamp(octoberFirstNoon, 'daily'), octoberFirstNoon - DAY);
+  assert.equal(getTrafficPeriodStartTimestamp(octoberFirstNoon, 'weekly'), octoberFirstNoon - 7 * DAY);
+  // previous calendar month is September (30 days)
+  assert.equal(getTrafficPeriodStartTimestamp(octoberFirstNoon, 'monthly', timezone), octoberFirstNoon - 30 * DAY);
+
+  // March 1st: previous month is February (2026 is not a leap year, 28 days)
+  const marchFirst = Date.UTC(2026, 2, 1, 4);
+  assert.equal(getTrafficPeriodStartTimestamp(marchFirst, 'monthly', timezone), marchFirst - 28 * DAY);
+
+  // month attribution follows the notification timezone: UTC is still Sep 30 while Beijing is already Oct 1
+  const straddle = Date.UTC(2026, 8, 30, 23, 30);
+  assert.equal(getTrafficPeriodStartTimestamp(straddle, 'monthly', timezone), straddle - 30 * DAY);
+  assert.equal(getTrafficPeriodStartTimestamp(straddle, 'monthly', 'UTC'), straddle - 31 * DAY);
+});
+
+test('traffic report content appends history backfill coverage notes', () => {
+  const report = buildTrafficReportContent([server], [{
+    server_id: server.id,
+    rx_bytes: 5_000,
+    tx_bytes: 8_000,
+    note: '（自 09/28 起）'
+  }], '每周');
+
+  assert.match(report.msg, /（自 09\/28 起）/);
+  assert.match(report.msg, /总计/);
 });
