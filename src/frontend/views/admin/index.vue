@@ -1417,7 +1417,10 @@ const saveSettings = async () => {
 
   const isTrafficReportEnabled = normalizeTrafficReportTypesSetting(settings.value.traffic_report_types).length > 0
   if (isTgNotifyEnabled(settings.value.tg_notify) || isExpireReminderEnabled(settings.value.expire_reminder) || isResourceAlertEnabled(settings.value.resource_alert_rules) || isTrafficReportEnabled) {
-    if (isNotificationWebhookEnabled()) {
+    const hasCustomScript = String(settings.value.notification_custom_script || '').trim().length > 0
+    if (hasCustomScript) {
+      // 已配置自定义 JS 通知脚本（优先级最高），不再校验内置渠道 / Webhook
+    } else if (isNotificationWebhookEnabled()) {
       if (!settings.value.notification_webhook_url || settings.value.notification_webhook_url.trim().length === 0) {
         validationError.value = trans.value.notificationWebhookUrlRequired || 'Webhook URL is required'
         return
