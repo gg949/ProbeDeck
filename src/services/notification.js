@@ -961,8 +961,8 @@ export async function checkOfflineNodes(db) {
 
     if (offlineNodes.length > 0 || recoveredNodes.length > 0) {
       await db.prepare(
-        'INSERT INTO settings (key, value) VALUES ("alert_state", ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-      ).bind(JSON.stringify(alertState)).run();
+        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+      ).bind('alert_state', JSON.stringify(alertState)).run();
     }
 
     if (offlineNodes.length > 0) {
