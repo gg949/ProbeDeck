@@ -1,12 +1,16 @@
 import { md5Hash } from './common.js';
 import { isWssReportConfigured } from './settings.js';
 
-export const AGENT_CONFIG_SCHEMA_VERSION = 7;
+export const AGENT_CONFIG_SCHEMA_VERSION = 8;
 export const AGENT_CONFIG_LEGACY_SCHEMA_VERSION = 3;
 export const AGENT_CONFIG_CONNECTION_MODE_SCHEMA_VERSION = 4;
 export const AGENT_CONFIG_WSS_REPORT_INTERVAL_SCHEMA_VERSION = 5;
 export const AGENT_CONFIG_PING_MODE_SCHEMA_VERSION = 6;
 export const AGENT_CONFIG_EXTRA_NODES_SCHEMA_VERSION = 7;
+// 探针 v1.0.18（schema 8）起远程配置接受扩展上报间隔（1/3/5/10/15/20 秒）；旧探针（≤ v1.0.17）
+// 的远程配置校验只接受 30/60/120/180——碰到扩展值会整包拒绝（invalid report_interval），
+// 连同一包里的节点等配置全部无法下发，故对旧探针把 report_interval 收敛（见 buildAgentConfig）。
+export const AGENT_CONFIG_EXTENDED_INTERVALS_SCHEMA_VERSION = 8;
 export const AGENT_CONFIG_SCHEMA_HEADER = 'X-Agent-Config-Schema';
 export const AGENT_CONFIG_MD5_HEADER = 'X-Agent-Config-Md5';
 export const MAX_TRAFFIC_CORRECTION_GB = 1000000;
@@ -18,6 +22,9 @@ export const DEFAULT_WSS_REPORT_INTERVAL = 2;
 
 const ALLOWED_COLLECT_INTERVALS = new Set([0, 1, 2, 5, 10]);
 const ALLOWED_REPORT_INTERVALS = new Set([1, 3, 5, 10, 15, 20, 30, 60, 120, 180]);
+// 旧探针（schema ≤ 7）远程配置只接受的"传统"上报间隔集合；不在此集合内的值收敛到 AGENT_LEGACY_REPORT_INTERVAL_CLAMP
+const AGENT_LEGACY_REPORT_INTERVALS = new Set([30, 60, 120, 180]);
+const AGENT_LEGACY_REPORT_INTERVAL_CLAMP = 30;
 const ALLOWED_WSS_REPORT_INTERVALS = new Set([1, 2, 3, 4, 5]);
 const ALLOWED_CONNECTION_MODES = new Set([CONNECTION_MODE_AUTO, CONNECTION_MODE_HTTP]);
 const ALLOWED_PING_MODES = new Set([PING_MODE_TCP, PING_MODE_ICMP]);
@@ -269,6 +276,14 @@ export function buildAgentConfig(server, settings = null, schemaVersion = AGENT_
   let reportInterval = storedInteger(server?.report_interval, ALLOWED_REPORT_INTERVALS, 60);
   const wssReportInterval = normalizeWssReportInterval(server?.wss_report_interval);
   if (collectInterval > 0 && reportInterval < collectInterval) reportInterval = 60;
+
+  // 旧探针（schema ≤ 7，v1.0.17 及以下）远程配置校验只接受 30/60/120/180 秒；面板允许的
+  // 1/3/5/10/15/20 秒会触发探针整包拒绝（WSS config rejected: invalid report_interval N），
+  // 连同包内的节点等配置全部无法下发。WSS 模式下真实上报节奏由 wss_report_interval 决定，
+  // 因此对旧探针把 report_interval 收敛为 30 秒规避整包拒绝；探针 schema ≥ 8 后原样下发。
+  if (version < AGENT_CONFIG_EXTENDED_INTERVALS_SCHEMA_VERSION && !AGENT_LEGACY_REPORT_INTERVALS.has(reportInterval)) {
+    reportInterval = AGENT_LEGACY_REPORT_INTERVAL_CLAMP;
+  }
 
   const resetNumber = typeof server?.reset_day === 'number'
     ? server.reset_day

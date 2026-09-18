@@ -22,8 +22,8 @@ const server = {
   reset_day: 15,
   ping_mode: 'tcp'
 };
-const expected = 'collect_interval=1&report_interval=60&reset_day=15&schema_version=7&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&node_1=&node_2=&node_3=&node_4=&connection_mode=http&ping_mode=tcp';
-const expectedWssEnabled = 'collect_interval=1&report_interval=60&reset_day=15&schema_version=7&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&node_1=&node_2=&node_3=&node_4=&connection_mode=auto&wss_report_interval=2&ping_mode=tcp';
+const expected = 'collect_interval=1&report_interval=60&reset_day=15&schema_version=8&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&node_1=&node_2=&node_3=&node_4=&connection_mode=http&ping_mode=tcp';
+const expectedWssEnabled = 'collect_interval=1&report_interval=60&reset_day=15&schema_version=8&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&node_1=&node_2=&node_3=&node_4=&connection_mode=auto&wss_report_interval=2&ping_mode=tcp';
 const expectedLegacy = 'collect_interval=1&report_interval=60&reset_day=15&schema_version=3&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=';
 
 const config = buildAgentConfig(server);
@@ -227,5 +227,18 @@ assert.equal(validatePingNode('foo:bar').valid, false);
 assert.deepEqual(validatePingNode('2001:db8::1'), { valid: true, value: '[2001:db8::1]' });
 assert.deepEqual(validatePingNode('[2001:db8::1]:443'), { valid: true, value: '[2001:db8::1]:443' });
 assert.deepEqual(validatePingNode('2001:db8::1:443'), { valid: true, value: '[2001:db8::1:443]' });
+
+// 扩展上报间隔（1/3/5/10/15/20 秒）：旧探针（schema ≤ 7）收敛为 30 避免整包被拒；schema ≥ 8 原样下发
+const extendedIntervalServer = { ...server, report_interval: 3 };
+const extendedLegacyConfig = buildAgentConfig(extendedIntervalServer, { wss_report_enabled: 'true' }, 7);
+assert.equal(extendedLegacyConfig.report_interval, 30);
+assert.equal(serializeAgentConfig(extendedLegacyConfig).includes('report_interval=30'), true);
+assert.equal(buildAgentConfig({ ...server, report_interval: 20 }, null, 7).report_interval, 30);
+assert.equal(buildAgentConfig({ ...server, report_interval: 1 }, null, 3).report_interval, 30);
+assert.equal(buildAgentConfig({ ...server, report_interval: 30 }, null, 7).report_interval, 30);
+assert.equal(buildAgentConfig({ ...server, report_interval: 60 }, null, 7).report_interval, 60);
+const extendedCurrentConfig = buildAgentConfig(extendedIntervalServer, { wss_report_enabled: 'true' });
+assert.equal(extendedCurrentConfig.report_interval, 3);
+assert.equal(serializeAgentConfig(extendedCurrentConfig).includes('report_interval=3'), true);
 
 console.log('agent config tests passed');

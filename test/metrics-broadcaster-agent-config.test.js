@@ -517,7 +517,8 @@ test('WSS agent config push uses string body and structured payload', () => {
   };
   const broadcaster = makeBroadcaster([ws]);
 
-  const result = broadcaster._pushAgentConfigFrame('server-1', makeDescriptor());
+  // 生产环境经 _handleAgentConfigChanged 传入按 schema 分组的 Map（这里模拟 schema 7 探针）
+  const result = broadcaster._pushAgentConfigFrame('server-1', new Map([[7, makeDescriptor()]]));
 
   assert.deepEqual(result, { matched: 1, delivered: 1 });
   assert.equal(sent.length, 1);
@@ -528,6 +529,34 @@ test('WSS agent config push uses string body and structured payload', () => {
   assert.equal(sent[0].payload.connection_mode, 'auto');
   assert.equal(sent[0].payload.ping_mode, 'tcp');
   assert.equal(Object.prototype.hasOwnProperty.call(sent[0], 'config'), false);
+});
+
+test('WSS current-schema (8) agent config push uses single descriptor', () => {
+  const sent = [];
+  const ws = {
+    deserializeAttachment() {
+      return {
+        kind: 'agent-report',
+        authenticated: true,
+        serverId: 'server-1',
+        configSchema: '8',
+        configMd5: 'none'
+      };
+    },
+    send(message) {
+      sent.push(JSON.parse(message));
+    }
+  };
+  const broadcaster = makeBroadcaster([ws]);
+  const descriptor = makeDescriptor('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 8);
+
+  const result = broadcaster._pushAgentConfigFrame('server-1', descriptor);
+
+  assert.deepEqual(result, { matched: 1, delivered: 1 });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, 'config');
+  assert.equal(sent[0].config_schema, 8);
+  assert.equal(sent[0].body, descriptor.serialized);
 });
 
 test('WSS agent config push keeps legacy schema without connection mode', () => {
