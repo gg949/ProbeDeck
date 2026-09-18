@@ -10,7 +10,7 @@
 
 **把探针面板搬进你自己的 Docker** — 单容器部署 · 数据全本地 · 上报最低 1 秒 · 1C1G 就能跑
 
-[🔗 在线演示](https://probedeck.guoba.cc.cd/) · [🚀 快速开始](#快速开始) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md)
+[🔗 在线演示](https://probedeck.guoba.cc.cd/) · [🚀 快速开始](#快速开始) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md) · [☕ 支持项目](#支持项目)
 
 **[English](README.en.md) | 中文**
 
@@ -501,6 +501,16 @@ rm -rf /opt/probedeck
 - [全局 API 文档](API.md)：完整 REST / WebSocket API 参考——鉴权、端点、数据结构、错误码
 
 > **主题生态**：ProbeDeck 与原版 CF-Server-Monitor 的主题**完全通用**。面板中可直接填写任意主题链接（不限数量），格式为 `https://github.com/<作者>/<仓库>/tree/<分支>`；也可以在「主题商店」里一键安装。即使主题链接失效，站点也会自动回落到内置界面，不受影响。
+
+## 支持项目
+
+如果 ProbeDeck 对你有帮助，欢迎通过以下方式支持后续维护。
+
+<p>
+  <img src="./docs/wechat-reward.png" alt="微信赞赏码" width="215">
+</p>
+
+- 微信赞赏：扫码支持
 
 ## 致谢与许可
 

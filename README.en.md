@@ -10,7 +10,7 @@
 
 **Bring your server-status panel into your own Docker** — single-container deploy · 100% local data · report interval down to 1 second · runs great on a 1C1G VPS
 
-[🔗 Live Demo](https://probedeck.guoba.cc.cd/) · [🚀 Quick Start](#quick-start) · [🔄 Migrate from Cloudflare](#migrating-from-cloudflare) · [🎨 Theme Development](theme-develop.md) · [📖 API Reference](API.md)
+[🔗 Live Demo](https://probedeck.guoba.cc.cd/) · [🚀 Quick Start](#quick-start) · [🔄 Migrate from Cloudflare](#migrating-from-cloudflare) · [🎨 Theme Development](theme-develop.md) · [📖 API Reference](API.md) · [☕ Support](#support-the-project)
 
 **English | [中文](README.md)**
 
@@ -505,6 +505,16 @@ restart the container with network access to auto-download it, or manually place
 > **Theme ecosystem**: ProbeDeck and the original CF-Server-Monitor themes are **fully interchangeable**.
 > You can paste any theme link in the panel (no count limit), format `https://github.com/<author>/<repo>/tree/<branch>`;
 > or install one-click from the Theme Store. Even if a theme link breaks, the site falls back to the built-in UI automatically.
+
+## Support the Project
+
+If ProbeDeck has been helpful to you, you're welcome to support its ongoing maintenance.
+
+<p>
+  <img src="./docs/wechat-reward.png" alt="WeChat reward code" width="215">
+</p>
+
+- WeChat reward: scan the QR code to support
 
 ## Credits & License
 
