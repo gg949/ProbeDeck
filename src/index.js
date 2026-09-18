@@ -12,7 +12,7 @@ import { checkAuth, simpleAuthResponse } from './middleware/auth.js';
 import { getServerDetail, getMetricsHistoryCache, setMetricsHistoryCache, getCacheDuration } from './utils/cache.js';
 import { AppError, createSuccessResponse, createUnauthorizedResponse, createBadRequestResponse, createNotFoundResponse, createErrorResponse } from './utils/errors.js';
 import { verifyTurnstileToken } from './utils/common.js';
-import { getCorsAllowedOrigins, createOptionsResponse, applyCors } from './utils/cors.js';
+import { getCorsAllowedOrigins, createOptionsResponse, applyCors, createCorsHeaders } from './utils/cors.js';
 import { getRemoteVersion } from './utils/version.js';
 import {
   HISTORY_ALL_QUERY_COLUMNS
@@ -196,12 +196,11 @@ export default {
     }
 
     if (method === 'GET' && path === '/admin/') {
-      const target = new URL(request.url);
-      const search = target.search;
-      target.pathname = '/admin';
-      target.search = '';
-      target.hash = `admin${search}`;
-      return Response.redirect(target.toString(), 302);
+      // 相对跳转，不拼接请求 Host / X-Forwarded-Host（防伪造头构造开放重定向）
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `/admin#admin${url.search}` }
+      });
     }
 
     if (method === 'GET' && path.startsWith('/assets/')) {
@@ -441,8 +440,9 @@ export default {
           const encryptedData = await encryptTurnstileData(cookieData, env, sys);
 
           const finalHeaders = new Headers(response.headers);
-          finalHeaders.set('Access-Control-Allow-Origin', request.headers.get('Origin') || '');
-          finalHeaders.set('Access-Control-Allow-Credentials', 'true');
+          // CORS 头只按白名单下发（原先为反射任意 Origin + credentials，已收紧）
+          createCorsHeaders(request.headers.get('Origin'), corsAllowedOrigins)
+            .forEach((value, key) => finalHeaders.set(key, value));
           finalHeaders.set('Vary', 'Origin');
 
           return new Response(response.body, {

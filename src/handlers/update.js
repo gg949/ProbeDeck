@@ -7,6 +7,7 @@ import {
   coerceNumericMetricFields
 } from '../utils/metrics.js';
 import { createErrorResponse, createUnauthorizedResponse, createNotFoundResponse, createBadRequestResponse } from '../utils/errors.js';
+import { timingSafeEqualString } from '../utils/common.js';
 import { ensureServerOptimization } from '../database/indexOptimization.js';
 import { getResourceAlertConfig, getWssReportScheduleState, isWssReportConfigured, loadSiteSettings, normalizeBooleanSetting } from '../utils/settings.js';
 import { cacheLatestReportUpdate } from '../utils/latestReportCache.js';
@@ -67,6 +68,19 @@ function normalizeTimestamp(value, fallback = Date.now()) {
   const ts = Number(value);
   if (!Number.isFinite(ts) || ts <= 0) return fallback;
   return ts < 10000000000 ? ts * 1000 : ts;
+}
+
+// 上报时间戳漂移窗口：latest 样本与服务端 now 相差超过窗口即拒绝，用于拒绝历史
+// 抓包重放与时钟异常的探针（探针端通过响应 Date 头校时——WSS 每次握手 / HTTP 2xx
+// 响应，正常时钟偏移远小于窗口；批量补报的 latest 样本≈发送时刻，不受影响）。
+export const REPORT_TIMESTAMP_PAST_WINDOW_MS = 60 * 1000;
+export const REPORT_TIMESTAMP_FUTURE_WINDOW_MS = 60 * 1000;
+
+export function isReportTimestampWithinWindow(ts, now = Date.now()) {
+  const timestamp = Number(ts);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return false;
+  return timestamp >= now - REPORT_TIMESTAMP_PAST_WINDOW_MS
+    && timestamp <= now + REPORT_TIMESTAMP_FUTURE_WINDOW_MS;
 }
 
 export function normalizeAgentVersion(value) {
@@ -508,7 +522,7 @@ export async function handleUpdate(request, env, ctx) {
     const data = await request.json();
     const { id, secret } = data;
 
-    if (secret !== env.API_SECRET) {
+    if (!(await timingSafeEqualString(secret, env.API_SECRET))) {
       return createUnauthorizedResponse('Invalid secret');
     }
 
@@ -568,6 +582,17 @@ export async function handleUpdate(request, env, ctx) {
         has_batch: Array.isArray(data.batch)
       });
       return createBadRequestResponse('Missing metrics');
+    }
+
+    // 时间戳漂移校验：latest 样本须落在 ±60s 窗口内（拒绝历史抓包重放 / 时钟异常数据）
+    const reportLatestTs = samples[samples.length - 1].ts;
+    if (!isReportTimestampWithinWindow(reportLatestTs)) {
+      logUpdateBadRequest('Stale report timestamp', {
+        id,
+        ts: reportLatestTs,
+        deltaMs: reportLatestTs - Date.now()
+      });
+      return createBadRequestResponse('Stale report timestamp');
     }
 
     // 获取最后一条插入（如果是批量数据，取最后一个样本）

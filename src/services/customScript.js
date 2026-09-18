@@ -116,14 +116,17 @@ export async function runCustomNotificationScript(source, payload = {}) {
   }
 
   const { requestFetch, xhr } = buildSandboxFetch();
-  // 每次发送使用全新 context（互不串状态）；函数声明 / const / globalThis 赋值均能取到
+  // 每次发送使用全新 context（互不串状态）；函数声明 / const / globalThis 赋值均能取到。
+  // codeGeneration 关闭 eval / new Function / WebAssembly 代码生成，挡住沙箱内最常见的
+  // 「构造代码执行」逃逸路径；注意 node:vm 仍非安全边界（宿主函数 .constructor 路线
+  // 理论上仍可达宿主 realm）——定位不变：仅限管理员粘贴可信代码。
   const context = vm.createContext({
     fetch: requestFetch,
     xhr,
     console: buildSandboxConsole(),
     setTimeout,
     clearTimeout
-  });
+  }, { codeGeneration: { strings: false, wasm: false } });
 
   const invoke = (name, args) => {
     context.__probeDeckInvoke = { args };

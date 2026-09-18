@@ -90,10 +90,7 @@ export async function tryHandleCfMigrate(request, env, dataDir) {
   if (url.pathname !== '/_pd/cf-migrate') return null;
 
   // 能力探测：前端据此决定是否显示该功能（Cloudflare Workers 版没有此端点）
-  if (request.method === 'GET') {
-    return jsonResponse({ available: true });
-  }
-  if (request.method !== 'POST') {
+  if (request.method !== 'GET' && request.method !== 'POST') {
     return jsonResponse({ error: 'methodNotAllowed' }, 405);
   }
 
@@ -106,6 +103,11 @@ export async function tryHandleCfMigrate(request, env, dataDir) {
     console.error('[cf-migrate] 认证检查失败:', e?.message || e);
   }
   if (!authorized) return jsonResponse({ error: 'unauthorized' }, 401);
+
+  // 能力探测同样需要管理员登录态（避免未登录即可指纹识别 /_pd/ 扩展端点）
+  if (request.method === 'GET') {
+    return jsonResponse({ available: true });
+  }
 
   if (cfMigrateRunning) {
     return jsonResponse({ error: 'migrateAlreadyRunning' }, 409);

@@ -1,0 +1,16 @@
+#!/bin/sh
+# ──────────────────────────────────────────────────────────────
+# ProbeDeck 容器入口（v2.11.3 起）：主进程以非 root（node 用户）运行。
+#   • 以 root 启动时：先修正数据目录属主（兼容旧的 root 属主挂载），
+#     再用 setpriv 降权；node:24-bookworm-slim 自带 setpriv，无需额外安装。
+#   • 以非 root 启动时（如 docker run --user）：直接执行。
+#   • chown 失败（如只读挂载）不视为致命错误，仍尝试降权运行。
+# ──────────────────────────────────────────────────────────────
+set -e
+
+if [ "$(id -u)" = "0" ]; then
+  chown -R node:node /app/data 2>/dev/null || true
+  exec setpriv --reuid=node --regid=node --init-groups "$@"
+fi
+
+exec "$@"

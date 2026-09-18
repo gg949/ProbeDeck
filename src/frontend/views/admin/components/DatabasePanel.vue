@@ -132,9 +132,18 @@ const cfMigrating = ref(false)
 const cfMigrateStatus = ref(null) // { ok: boolean, text: string }
 
 // 探测后端是否支持该功能（Cloudflare Workers 版没有此端点）
+const cfAuthHeaders = () => {
+  try {
+    const token = localStorage.getItem('jwt_token') || ''
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  } catch (_) {
+    return {}
+  }
+}
+
 onMounted(async () => {
   try {
-    const res = await fetch('/_pd/cf-migrate', { headers: { Accept: 'application/json' } })
+    const res = await fetch('/_pd/cf-migrate', { headers: { Accept: 'application/json', ...cfAuthHeaders() } })
     if (!res.ok) return
     const data = await res.json().catch(() => null)
     cfMigrateAvailable.value = !!(data && data.available === true)
@@ -146,8 +155,9 @@ const waitForPanelRestart = async () => {
   for (let i = 0; i < 40; i++) {
     await new Promise((resolve) => setTimeout(resolve, 3000))
     try {
-      const res = await fetch('/_pd/cf-migrate', { cache: 'no-store' })
-      if (res.ok) {
+      const res = await fetch('/_pd/cf-migrate', { cache: 'no-store', headers: cfAuthHeaders() })
+      // 任意 <500 响应（含导入后需重新登录的 401）都说明服务已恢复
+      if (res.status < 500) {
         window.location.reload()
         return
       }

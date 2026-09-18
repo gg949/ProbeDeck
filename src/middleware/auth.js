@@ -1,5 +1,5 @@
 const ALGORITHM = { name: 'HMAC', hash: 'SHA-256' };
-import { verifyPasswordHash } from '../utils/common.js';
+import { verifyPasswordHash, timingSafeEqualString } from '../utils/common.js';
 import { isValidJwtSecret } from '../utils/settings.js';
 
 export const AUTH_COOKIE_NAME = 'cfsm_auth';
@@ -208,7 +208,7 @@ export async function validateCredentials(request, env, sys) {
       typeof env.API_SECRET === 'string' &&
       env.API_SECRET.length > 0 &&
       username === validUsername &&
-      password === env.API_SECRET
+      await timingSafeEqualString(password, env.API_SECRET)
     );
     return { valid, needsPasswordUpgrade: false };
   } catch (e) {

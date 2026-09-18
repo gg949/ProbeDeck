@@ -41,7 +41,27 @@ const HOST = process.env.HOST || '0.0.0.0';
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(rootDir, 'data'));
 const DIST_DIR = path.resolve(process.env.DIST_DIR || path.join(rootDir, 'dist'));
 
+// 请求体 / WebSocket 单帧大小上限（默认 16MB：覆盖探针长时间断档后的批量补报，
+// 同时给未鉴权的超大请求/帧封顶，防内存打满）。可用环境变量覆盖。
+const MAX_REQUEST_BODY_BYTES = Number(process.env.MAX_REQUEST_BODY_BYTES) || 16 * 1024 * 1024;
+const WS_MAX_PAYLOAD_BYTES = Number(process.env.WS_MAX_PAYLOAD_BYTES) || 16 * 1024 * 1024;
+// WebSocket 并发连接总数上限（探针上报 + 前端订阅共享）
+const WS_MAX_CONNECTIONS = Number(process.env.WS_MAX_CONNECTIONS) || 1024;
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// 清理历史 CF 迁移备份（保留最近 2 份；备份内含配置/密钥，不宜长期堆积）
+function prunePreMigrateBackups(dir, keep = 2) {
+  try {
+    const files = fs.readdirSync(dir)
+      .filter((name) => name.startsWith('monitor.db.pre-migrate-'))
+      .sort();
+    for (const name of files.slice(0, Math.max(0, files.length - keep))) {
+      try { fs.unlinkSync(path.join(dir, name)); } catch (_) {}
+    }
+  } catch (_) {}
+}
+prunePreMigrateBackups(DATA_DIR);
 
 // ── API_SECRET：未设置时自动生成并持久化 ───────────────────────────────────
 // 优先使用环境变量；否则读取数据目录中已保存的密钥；再否则随机生成一份并写入
@@ -158,8 +178,21 @@ async function toFetchRequest(req, { withBody = true } = {}) {
 
   let body;
   if (withBody && req.method !== 'GET' && req.method !== 'HEAD') {
+    const declaredLength = Number(req.headers['content-length'] || 0);
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BODY_BYTES) {
+      const error = new Error('Request body too large');
+      error.code = 'REQUEST_BODY_TOO_LARGE';
+      throw error;
+    }
     const chunks = [];
+    let totalBytes = 0;
     for await (const chunk of req) {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_REQUEST_BODY_BYTES) {
+        const error = new Error('Request body too large');
+        error.code = 'REQUEST_BODY_TOO_LARGE';
+        throw error;
+      }
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
     if (chunks.length > 0) body = Buffer.concat(chunks);
@@ -320,6 +353,8 @@ async function tryServeCustomFavicon(request, env) {
     }
     const parsed = parseFaviconDataUri(favicon);
     if (!parsed) return null;
+    // 仅接受图片 MIME 的 data URI（防 text/html 等内容被当图标回放；非图片回落默认图标）
+    if (!/^image\//i.test(parsed.mime)) return null;
 
     // 缓存策略：真正的资源地址 = 图标内容哈希路径 /favicon-<hash>.ico（可放心长缓存，
     // 图标一改地址就变）；/favicon.ico 与过期哈希一律 302 到当前哈希地址且不缓存。
@@ -338,7 +373,10 @@ async function tryServeCustomFavicon(request, env) {
       headers: {
         'Content-Type': parsed.mime,
         'Content-Length': String(parsed.buf.length),
-        'Cache-Control': 'public, max-age=31536000, immutable'
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'X-Content-Type-Options': 'nosniff',
+        // 直接访问该地址（如 SVG 图标）时禁止脚本执行
+        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox"
       }
     });
   } catch (e) {
@@ -371,6 +409,17 @@ const server = http.createServer(async (req, res) => {
 
     await writeFetchResponse(res, req, withCorsHeaders(response, req, env));
   } catch (e) {
+    if (e && e.code === 'REQUEST_BODY_TOO_LARGE') {
+      console.warn('[server] 请求体超过上限，已拒绝:', req.method, req.url);
+      if (!res.headersSent) {
+        res.statusCode = 413;
+        res.setHeader('content-type', 'application/json; charset=utf-8');
+        res.setHeader('connection', 'close');
+      }
+      res.end(JSON.stringify({ error: 'Payload Too Large', code: 413 }));
+      try { req.destroy(); } catch (_) {}
+      return;
+    }
     console.error('[server] 请求处理失败:', e);
     if (!res.headersSent) {
       res.statusCode = 500;
@@ -381,7 +430,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ── 10) WebSocket 升级处理 ─────────────────────────────────────────────────
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD_BYTES });
 
 // 迁移到自托管 Node 后需自行补齐的原平台兜底能力：
 // 1) 主动心跳：空闲连接（探针上报间隔 60-180s、无前端订阅时无数据流）会被
@@ -412,6 +461,13 @@ wsHeartbeatTimer.unref?.();
 
 server.on('upgrade', async (req, socket, head) => {
   try {
+    if (wss.clients.size >= WS_MAX_CONNECTIONS) {
+      await writeRawHttpResponse(socket, new Response(JSON.stringify({ error: 'Service Unavailable', code: 503 }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return;
+    }
     const request = await toFetchRequest(req, { withBody: false });
     const store = { pairs: [] };
 

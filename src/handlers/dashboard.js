@@ -64,6 +64,25 @@ function withoutPrivateServerFields(server) {
   return normalizePublicIpFields(item);
 }
 
+// 访客可见性过滤：show_* 关闭时，对应字段在服务端直接剥离（不能只靠前端隐藏——
+// 原始接口对未登录访客同样开放）。tags 属卡片有意公开的展示项，不在此列。
+export function stripVisitorRestrictedFields(server, sys) {
+  if (!server || typeof server !== 'object') return server;
+  if (sys?.show_price !== 'true') {
+    delete server.price;
+    delete server.currency;
+    delete server.billing_cycle;
+    delete server.auto_renewal;
+  }
+  if (sys?.show_expire !== 'true') {
+    delete server.expire_date;
+  }
+  if (sys?.show_tf !== 'true') {
+    delete server.traffic_limit;
+  }
+  return server;
+}
+
 function normalizeLatestReportSample(sample) {
   if (!sample || typeof sample !== 'object') return null;
   const data = sample?.data || sample?.payload || sample?.metrics;
@@ -194,7 +213,11 @@ export async function handleServerAPI(request, env, sys) {
   
   const server = await getServerDetail(env.DB, id, isLoggedIn);
   if (!server) return createNotFoundResponse('Server not found');
-  
+
+  if (!isLoggedIn) {
+    stripVisitorRestrictedFields(server, sys);
+  }
+
   const [latestMetrics, realtimeState] = await Promise.all([
     getLatestMetrics(env.DB, id, server),
     getRealtimeStateForServers(env, [id])
@@ -216,7 +239,10 @@ export async function handleServersAPI(request, env, sys) {
   }
   markFrontendRealtimeActive();
   
-  const results = (await getAllServers(env.DB, isLoggedIn)).map(withoutPrivateServerFields);
+  const results = (await getAllServers(env.DB, isLoggedIn)).map(server => {
+    const item = withoutPrivateServerFields(server);
+    return isLoggedIn ? item : stripVisitorRestrictedFields(item, sys);
+  });
   const shouldIncludeLatencyHistory = sys.show_three_net_details === 'true';
   
   const serverIds = results.map(server => server.id).filter(Boolean);

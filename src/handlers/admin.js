@@ -460,8 +460,65 @@ async function getD1DailyUsage(token, accountId) {
   };
 }
 
+// ── 登录失败节流（防在线暴力破解 / PBKDF2 校验 CPU 打满）────────────────────
+// 仅统计失败；窗口内超过阈值即 429，成功登录清零。进程内内存实现（重启即清）。
+const LOGIN_RATE_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_RATE_MAX_FAILURES_PER_IP = 10;
+const LOGIN_RATE_MAX_TRACKED_IPS = 5000;
+const loginFailureState = new Map(); // ip -> { count, windowStartMs }
+
+function getRequestClientIp(request) {
+  const headers = request?.headers;
+  const direct = String(headers?.get?.('cf-connecting-ip') || headers?.get?.('x-real-ip') || '').trim();
+  if (direct) return direct;
+  const forwarded = String(headers?.get?.('x-forwarded-for') || '').trim();
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return 'unknown';
+}
+
+function pruneLoginFailureState(now) {
+  for (const [key, state] of loginFailureState) {
+    if (!state || now - state.windowStartMs > LOGIN_RATE_WINDOW_MS * 2) {
+      loginFailureState.delete(key);
+    }
+  }
+}
+
+export function isLoginRateLimited(ip, now = Date.now()) {
+  const key = String(ip || 'unknown');
+  const state = loginFailureState.get(key);
+  if (!state) return false;
+  if (now - state.windowStartMs > LOGIN_RATE_WINDOW_MS) {
+    loginFailureState.delete(key);
+    return false;
+  }
+  return state.count >= LOGIN_RATE_MAX_FAILURES_PER_IP;
+}
+
+export function registerLoginFailure(ip, now = Date.now()) {
+  const key = String(ip || 'unknown');
+  if (loginFailureState.size > LOGIN_RATE_MAX_TRACKED_IPS) {
+    pruneLoginFailureState(now);
+  }
+  const state = loginFailureState.get(key);
+  if (!state || now - state.windowStartMs > LOGIN_RATE_WINDOW_MS) {
+    loginFailureState.set(key, { count: 1, windowStartMs: now });
+    return;
+  }
+  state.count += 1;
+}
+
+export function clearLoginFailures(ip) {
+  loginFailureState.delete(String(ip || 'unknown'));
+}
+
 async function handleLoginAction({ request, env, sys, data }) {
   const { username, password } = data;
+
+  const clientIp = getRequestClientIp(request);
+  if (isLoginRateLimited(clientIp)) {
+    return createErrorResponse(new AppError('tooManyLoginAttempts', 429));
+  }
 
   if (!username || !password) {
     return createBadRequestResponse('missingCredentials');
@@ -490,8 +547,11 @@ async function handleLoginAction({ request, env, sys, data }) {
   const credentialResult = await validateCredentials(mockRequest, env, sys);
 
   if (!credentialResult.valid) {
+    registerLoginFailure(clientIp);
     return createUnauthorizedResponse('invalidCredentials');
   }
+
+  clearLoginFailures(clientIp);
 
   if (credentialResult.needsPasswordUpgrade) {
     try {

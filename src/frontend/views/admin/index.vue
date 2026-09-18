@@ -1153,7 +1153,13 @@ const handleLogin = async () => {
       loadLatestAgentVersion()
     ])
   } else {
-    loginError.value = result.status === 403 ? 'Please complete the verification' : trans.value.errorInvalidUsername
+    if (result.status === 403) {
+      loginError.value = 'Please complete the verification'
+    } else if (result.status === 429) {
+      loginError.value = trans.value.tooManyLoginAttempts || 'Too many failed attempts. Please try again later.'
+    } else {
+      loginError.value = trans.value.errorInvalidUsername
+    }
     loginForm.value.password = ''
     clearTurnstile()
     resetTurnstile('#admin-turnstile-container')

@@ -43,6 +43,11 @@ COPY --from=build /app/src ./src
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/geoip ./geoip
 
+# 容器入口：以 root 启动时先修正数据目录属主，再用 setpriv 降权到 node 用户运行（非 root）
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
+ && chmod +x /usr/local/bin/docker-entrypoint.sh
+
 VOLUME ["/app/data"]
 EXPOSE 17986
 
@@ -50,4 +55,5 @@ EXPOSE 17986
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||17986)+'/api/config').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
 
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "server/index.js"]

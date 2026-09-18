@@ -77,6 +77,21 @@ function timingSafeEqualBytes(left, right) {
   return diff === 0;
 }
 
+// 恒时（timing-safe）字符串比较：用于 API_SECRET 等敏感值比对，避免 === / !==
+// 的提前返回带来时序侧信道。双方先各自做 SHA-256 摘要（等长 32 字节）再定长比较，
+// 天然抹平长度差异；非字符串输入一律视为不相等。
+export async function timingSafeEqualString(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string') {
+    return false;
+  }
+  const encoder = new TextEncoder();
+  const [leftDigest, rightDigest] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(left)),
+    crypto.subtle.digest('SHA-256', encoder.encode(right))
+  ]);
+  return timingSafeEqualBytes(new Uint8Array(leftDigest), new Uint8Array(rightDigest));
+}
+
 async function derivePbkdf2Hash(password, salt, iterations) {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(

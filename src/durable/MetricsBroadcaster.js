@@ -13,6 +13,7 @@
 // - Agent 上报连接使用标准 WebSocket API，避免高频指标消息计为 hibernation wakeup。
 
 import { saveMetricsHistory } from '../database/schema.js';
+import { timingSafeEqualString } from '../utils/common.js';
 import { ensureServerOptimization } from '../database/indexOptimization.js';
 import { getServerDetail, clearServerDetailCache } from '../utils/cache.js';
 import { getWssReportScheduleState, loadSiteSettings } from '../utils/settings.js';
@@ -31,6 +32,7 @@ import {
   applyHistoryMetricAggregates,
   collectHistoryMetricAggregates,
   getReportMetrics,
+  isReportTimestampWithinWindow,
   mergeHistoryMetricAggregates,
   normalizeAgentVersion,
   normalizeCorrectionValue,
@@ -685,7 +687,7 @@ export class MetricsBroadcaster {
 
     const hasSecret = Object.prototype.hasOwnProperty.call(data, 'secret');
     if (!attachment.authenticated || hasSecret) {
-      if (data.secret !== this.env.API_SECRET) {
+      if (!(await timingSafeEqualString(data.secret, this.env.API_SECRET))) {
         this._closeWsWithError(ws, 'Invalid secret', 401);
         return null;
       }
@@ -1275,6 +1277,11 @@ export class MetricsBroadcaster {
     }
 
     const latestSample = samples[samples.length - 1];
+    if (!isReportTimestampWithinWindow(latestSample.ts)) {
+      console.warn('[update-ws] 时间戳漂移拒绝:', context.serverId, 'deltaMs=', latestSample.ts - Date.now());
+      this._closeWsWithError(ws, 'Stale report timestamp', 400);
+      return;
+    }
     const latestMetrics = getReportMetrics(data, latestSample);
     const historyAggregate = collectHistoryMetricAggregates(samples);
     const broadcastSamples = toBroadcastSamples(
