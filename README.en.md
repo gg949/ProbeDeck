@@ -248,27 +248,15 @@ Caddy obtains and renews HTTPS certificates automatically and forwards WebSocket
 
 > ⚠️ Replace `monitor.example.com` with **your own domain** before running.
 
-### Option C: Nginx (one-line server block)
+### Option C: Nginx (one-click via Nginx-X)
 
-**Nginx not installed yet?**
+Set up the reverse proxy with the author's [Nginx-X](https://github.com/gg949/Nginx-X) automation script (it installs/upgrades Nginx, generates the proxy config and reloads, runs `nginx -t` before every change with auto-rollback, and can issue HTTPS certificates in one step):
 
 ```bash
-# Debian / Ubuntu
-sudo apt install -y nginx
-# CentOS / RHEL
-sudo yum install -y nginx && sudo systemctl enable --now nginx
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/gg949/Nginx-X/main/install.sh)"
 ```
 
-Then write the config:
-
-```nginx
-server { listen 80; server_name monitor.example.com; location / { proxy_pass http://127.0.0.1:17986; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; } }
-```
-
-> ⚠️ Replace `monitor.example.com` with **your own domain**.
-> Save to `/etc/nginx/conf.d/monitor.conf`, then `sudo nginx -t && sudo systemctl reload nginx`.
-> For HTTPS: `sudo apt install -y certbot python3-certbot-nginx && sudo certbot --nginx`.
-> Keep the `Upgrade` / `Connection` / `X-Forwarded-*` lines — WebSockets and client-IP detection depend on them.
+Then run `nx` → "Config (配置管理) → Internal reverse proxy (内部反代)" and enter **your domain** and backend port **17986** as prompted. For HTTPS, request a certificate from the certificate menu (HTTP-01 / DNS-01) — it can switch 80 → 443 automatically.
 
 ## Region Detection (GeoIP)
 

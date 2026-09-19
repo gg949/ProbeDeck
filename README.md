@@ -244,27 +244,15 @@ Caddy 会自动申请并续期 HTTPS 证书，WebSocket 自动透传，无需额
 
 > ⚠️ 示例里的 `monitor.example.com` 要**换成你自己的域名**再执行。
 
-### 方案三：Nginx（一行式 server 配置）
+### 方案三：Nginx（Nginx-X 一键反代）
 
-**尚未安装 Nginx？** 先安装（装完自动启动并开机自启）：
+使用作者维护的 [Nginx-X](https://github.com/gg949/Nginx-X) 自动化脚本配置反代（脚本会自动安装/升级 Nginx、生成代理配置并热加载，每次改动前先执行 `nginx -t` 校验、失败自动回滚，还支持一键 HTTPS 证书）：
 
 ```bash
-# Debian / Ubuntu
-sudo apt install -y nginx
-# CentOS / RHEL 系
-sudo yum install -y nginx && sudo systemctl enable --now nginx
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/gg949/Nginx-X/main/install.sh)"
 ```
 
-然后写入配置：
-
-```nginx
-server { listen 80; server_name monitor.example.com; location / { proxy_pass http://127.0.0.1:17986; proxy_http_version 1.1; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; } }
-```
-
-> ⚠️ 示例里的 `monitor.example.com` 要**换成你自己的域名**。
-> 写入 `/etc/nginx/conf.d/monitor.conf` 后执行 `sudo nginx -t && sudo systemctl reload nginx`（先测语法再热加载）。
-> 需要 HTTPS 可配合 `sudo apt install -y certbot python3-certbot-nginx && sudo certbot --nginx` 一键签发证书。
-> 注意保留 `Upgrade` / `Connection` / `X-Forwarded-*` 这几行——WebSocket 和客户端 IP 识别都依赖它们。
+安装完成后运行 `nx` → 「配置管理 → 内部反代」，按提示填写**你的域名**和**后端端口 `17986`** 即可。需要 HTTPS 时走「证书管理」一键申请（支持 HTTP-01 / DNS-01），并可自动切换 80 → 443。
 
 ## 地区自动识别（GeoIP）
 
