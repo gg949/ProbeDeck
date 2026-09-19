@@ -83,6 +83,8 @@ curl -fsSL https://get.docker.com | bash
 
 > Official Docker one-liner — supports Ubuntu / Debian / CentOS / Rocky, etc.
 > Verify with `docker --version`. If image pulls are slow from your region, configure a registry mirror.
+>
+> **Image architecture:** prebuilt for both `linux/amd64` and `linux/arm64` — ARM servers / NAS / Raspberry Pi can pull it directly; Docker picks the right one automatically.
 
 ### Option 1: docker compose (recommended)
 

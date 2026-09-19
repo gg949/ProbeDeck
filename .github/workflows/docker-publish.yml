@@ -8,6 +8,7 @@
 #   （说明：Create Release 工作流自动推送的 tag 不会触发本工作流，
 #    这是 GitHub 的防递归限制，因此用手动触发补版本标签）
 # • 镜像地址：ghcr.io/<仓库所有者>/probedeck:<版本号 | latest>
+# • 多架构：linux/amd64 + linux/arm64（ARM 服务器 / NAS / 树莓派直接可用）
 # • 首次发布后如果镜像不可见：GitHub 主页 → Packages → probedeck → Package settings
 #   → Change visibility → Public
 name: Build and publish Docker image
@@ -38,6 +39,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up QEMU (arm64 模拟构建)
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -64,6 +68,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha

@@ -2295,57 +2295,6 @@ body::before {
     gap: 8px;
 }
 
-.donation-content {
-    display: flex;
-    align-items: center;
-    flex-direction: column;
-    gap: 20px;
-}
-
-.donation-copy {
-    width: 100%;
-    max-width: 720px;
-    color: var(--text-primary);
-    font-size: 13px;
-    line-height: 1.8;
-    text-align: center;
-}
-
-.donation-copy p {
-    margin: 0 0 12px;
-}
-
-.donation-copy p:last-child {
-    margin-bottom: 0;
-}
-
-.donation-token {
-    color: var(--accent-yellow);
-    font-weight: 600;
-}
-
-.donation-qr-card {
-    width: min(247px, 100%);
-    padding: 14px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--bg-primary);
-    text-align: center;
-}
-
-.donation-qr {
-    display: block;
-    width: 215px;
-    max-width: 100%;
-    height: auto;
-    margin: 0 auto 10px;
-}
-
-.donation-qr-caption {
-    color: var(--text-secondary);
-    font-size: 12px;
-}
-
 .section-subtitle {
     color: var(--text-secondary);
     font-size: 12px;
@@ -5166,10 +5115,6 @@ body.mikus-theme .mikus-stats-mascot-img {
 
     .tab-content .text-right .btn {
         width: 100%;
-    }
-
-    .donation-content {
-        gap: 16px;
     }
 
     .view-panel {

@@ -97,11 +97,6 @@
             :class="{ active: activeTab === 'themeStore' }"
             @click="activeTab = 'themeStore'"
           >{{ trans.themeStore }}</button>
-          <button
-            class="tab-btn"
-            :class="{ active: activeTab === 'donation' }"
-            @click="activeTab = 'donation'"
-          >{{ trans.donation }}</button>
         </div>
 
         <ServerTable
@@ -175,10 +170,6 @@
           @alert-message="alertMessage = $event"
         />
 
-        <DonationPanel
-          :trans="trans"
-          :active-tab="activeTab"
-        />
       </div>
 
       <EditServerModal
@@ -422,7 +413,6 @@ import ServerTable from './components/ServerTable.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import DatabasePanel from './components/DatabasePanel.vue'
 import ThemeStorePanel from './components/ThemeStorePanel.vue'
-import DonationPanel from './components/DonationPanel.vue'
 import EditServerModal from './components/EditServerModal.vue'
 import BatchEditServersModal from './components/BatchEditServersModal.vue'
 import DeleteServerModal from './components/DeleteServerModal.vue'

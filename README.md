@@ -82,6 +82,8 @@ curl -fsSL https://get.docker.com | bash
 
 > Docker 官方一键安装脚本，支持 Ubuntu / Debian / CentOS / Rocky 等主流系统。
 > 装好后执行 `docker --version` 验证；国内服务器拉取镜像慢的话，可自行配置镜像加速器。
+>
+> **镜像架构**：预构建镜像同时提供 `linux/amd64` 与 `linux/arm64` —— ARM 服务器 / NAS / 树莓派等直接按下面方式拉取即可，Docker 会自动匹配架构。
 
 ### 方式一：docker compose 部署（推荐）
 
