@@ -427,16 +427,23 @@ docker compose -f docker-compose.build.yml up -d --build
 
 ### Probe (monitored machine)
 
-On the monitored machine (as root), using your panel address:
+On the monitored machine (as root) — either option works (both stop the service and remove the probe binary, config, traffic stats and logs):
+
+**① Go-version probe (what the panel dialog gives by default; requires access to GitHub)**:
 
 ```bash
-curl -fsSL 'http://YOUR_PANEL_ADDRESS/uninstall.sh' | sudo sh -s
+curl -fsSL https://raw.githubusercontent.com/gg949/cfsm-agent/main/install.sh | sh -s -- uninstall
 ```
 
-- The script asks for confirmation first; skip it with `| sudo sh -s -- -y`
-- It stops the service and removes the probe, its config, traffic stats and logs
+**② Panel-served script (no GitHub access needed; also covers legacy Shell-version probes)**:
+
+```bash
+curl -fsSL 'http://YOUR_PANEL_ADDRESS/uninstall.sh' | sh -s
+```
+
+- ① runs unattended; ② asks for confirmation first — skip it with `| sh -s -- -y`
 - Works on systemd / OpenRC / OpenWrt / Synology DSM / macOS; for Windows targets use `uninstall.ps1`
-- Alternatively use "Delete server" in the panel — the dialog shows the matching uninstall command
+- Alternatively use "Delete server" in the panel — the dialog generates the matching command for your OS/version/proxy
 
 ### Panel (the machine running ProbeDeck)
 

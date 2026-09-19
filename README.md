@@ -423,16 +423,23 @@ docker compose -f docker-compose.build.yml up -d --build
 
 ### 卸载被控端（探针）
 
-在被控机（root）上执行，把地址换成你的面板地址：
+在被控机（root）上执行，二选一（效果相同：停止服务，删除探针程序、配置、流量统计和日志）：
+
+**① Go 版探针（面板弹窗默认给的就是这条；需要能访问 GitHub）**：
 
 ```bash
-curl -fsSL 'http://你的面板地址/uninstall.sh' | sudo sh -s
+curl -fsSL https://raw.githubusercontent.com/gg949/cfsm-agent/main/install.sh | sh -s -- uninstall
 ```
 
-- 脚本会先询问确认；跳过询问直接卸载：把结尾换成 `| sudo sh -s -- -y`
-- 执行后会停止服务并删除探针脚本、配置、流量统计和日志
+**② 面板下发脚本（不需要访问 GitHub；也适用于旧版 Shell 探针）**：
+
+```bash
+curl -fsSL 'http://你的面板地址/uninstall.sh' | sh -s
+```
+
+- ① 全自动执行、不询问；② 会先询问确认，跳过询问：结尾换成 `| sh -s -- -y`
 - 支持 systemd / OpenRC / OpenWrt / 群晖 DSM / macOS；Windows 被控机使用 `uninstall.ps1`
-- 也可以在管理面板里「删除服务器」——弹窗中会给出对应的卸载命令，复制执行一样有效
+- 也可以在管理面板里「删除服务器」——弹窗会按你选择的系统/版本/代理生成对应卸载命令，复制执行一样有效
 
 ### 卸载主控端（部署 ProbeDeck 的服务器）
 
