@@ -3449,6 +3449,24 @@ body::before {
     color: var(--accent-green);
 }
 
+/* Docker 部署说明块：常驻显示（非复制态也要可见） */
+.docker-tip-block {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 4px;
+    padding: 8px 10px;
+}
+
+.docker-tip {
+    color: var(--text-secondary);
+    font-family: var(--terminal-font);
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+}
+
 .config-list {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -14,6 +14,7 @@
             <option value="unix">OpenWrt/Alpine/Synology DSM/FreeBSD</option>
             <option value="mac">macOS</option>
             <option value="windows">Windows</option>
+            <option value="docker">Docker / Unraid</option>
           </select>
         </div>
 
@@ -29,7 +30,7 @@
         </div>
       </div>
 
-      <div class="form-row">
+      <div v-if="targetOs !== 'docker'" class="form-row">
         <div class="form-group flex-1">
           <label class="form-label">
             {{ trans.ghProxy }}
@@ -64,7 +65,14 @@
         </div>
       </div>
 
-      <div class="config-list">
+      <div v-if="targetOs === 'docker'" class="form-group">
+        <label class="form-label">{{ trans.dockerTip || 'Docker' }}</label>
+        <div class="docker-tip-block">
+          <pre class="cmd-output docker-tip">{{ trans.dockerRunTip }}</pre>
+        </div>
+      </div>
+
+      <div v-if="targetOs !== 'docker'" class="config-list">
         <div class="config-row">
           <span class="config-label">{{ trans.collectInterval }}</span>
           <span class="config-value">{{ formatWithUnit(collectInterval, 's') }}</span>

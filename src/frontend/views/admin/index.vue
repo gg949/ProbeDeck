@@ -1614,6 +1614,21 @@ const getInstallCommand = (serverId) => {
   return `curl -sL ${HOST}/install.sh | bash -s install -id=${serverId} -secret='${apiSecret.value}' -url=${HOST}/update`
 }
 
+// Docker / Unraid 部署命令（与 cfsm-agent 仓库的 docker.md 保持一致）
+const getDockerRunCommand = (host, serverId, secret, version = '') => {
+  const image = version ? `ghcr.io/gg949/cfsm-agent:${version}` : 'ghcr.io/gg949/cfsm-agent:latest'
+  return [
+    'docker run -d \\',
+    '  --name cf-probe \\',
+    '  --restart unless-stopped \\',
+    `  -e SERVER_ID='${serverId}' \\`,
+    `  -e SECRET='${secret}' \\`,
+    `  -e WORKER_URL='${host}/update' \\`,
+    '  -v /opt/cf-probe:/etc/cf-probe \\',
+    `  ${image}`
+  ].join('\n')
+}
+
 const resolveServerPingNode = (server, field) => {
   const value = server?.[field]
   const explicitEmpty = value === 0 || value === '0'
@@ -1770,6 +1785,9 @@ const getCustomInstallCommand = () => {
   const effectiveConnectionMode = getEffectiveConnectionMode(connectionMode.value)
   const isDedicatedUserInstall = targetOs.value === 'linux' && installMode.value === 'cfsm-user'
   const effectivePingMode = getEffectivePingMode(isDedicatedUserInstall ? 'tcp' : pingMode.value)
+  if (targetOs.value === 'docker') {
+    return getDockerRunCommand(HOST, copyServerId.value, apiSecret.value, version)
+  }
   if (targetOs.value === 'windows') {
     const params = [
       'install'
