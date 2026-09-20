@@ -901,6 +901,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
 
       const shouldSaveAppearanceOptions = hasAppearanceInput(settings);
       const appearanceOptions = {};
+      let mergedAppearanceOptions = appearanceOptions;
 
       if (shouldSaveAppearanceOptions) {
         const nestedAppearanceOptions = settings.appearance_options || {};
@@ -926,9 +927,25 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
             }
           }
         }
+        // 合并已有 appearance_options：本次请求未提交的字段保持原值。
+        // 修复：主题商店「启用主题 / Mikus 开关」的部分保存会把手机背景图
+        // （custom_bg_mobile）等未提交字段整段冲掉的问题。
+        try {
+          const existingAppearanceRow = await env.DB.prepare(
+            "SELECT value FROM settings WHERE key = 'appearance_options'"
+          ).first();
+          if (existingAppearanceRow && typeof existingAppearanceRow.value === 'string' && existingAppearanceRow.value) {
+            const existingAppearanceParsed = JSON.parse(existingAppearanceRow.value);
+            if (existingAppearanceParsed && typeof existingAppearanceParsed === 'object' && !Array.isArray(existingAppearanceParsed)) {
+              mergedAppearanceOptions = { ...existingAppearanceParsed, ...appearanceOptions };
+            }
+          }
+        } catch (_) {
+          // 解析失败时退回本次提交的字段（保持旧行为）
+        }
         await env.DB.prepare(
           'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-        ).bind('appearance_options', JSON.stringify(appearanceOptions)).run();
+        ).bind('appearance_options', JSON.stringify(mergedAppearanceOptions)).run();
         clearAppearanceSettingsCache();
       }
 
@@ -1003,7 +1020,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       if (hasResourceAlertRulesInput && !resourceAlertEnabled) {
         await clearResourceAlertState(env.DB);
       }
-      Object.assign(sys, shouldSaveAppearanceOptions ? appearanceOptions : {}, siteOptions);
+      Object.assign(sys, shouldSaveAppearanceOptions ? mergedAppearanceOptions : {}, siteOptions);
       if (shouldCloseAgentWssReports && (
         settings.wss_report_enabled !== undefined ||
         settings.wss_report_hours !== undefined
