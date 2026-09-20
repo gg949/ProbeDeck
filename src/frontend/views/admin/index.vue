@@ -577,6 +577,16 @@ const normalizeNotificationEventEmojisSetting = (value) => {
   }))
 }
 
+const normalizeServerScopeSetting = (value) => {
+  const source = Array.isArray(value) ? value : String(value || '').split(',')
+  const picked = new Set()
+  for (const item of source) {
+    const id = String(item || '').trim()
+    if (id) picked.add(id)
+  }
+  return [...picked]
+}
+
 const normalizeFrontendWsTimeoutMinutesSetting = (value) => {
   const minutes = Number(value)
   return Number.isInteger(minutes) && minutes >= 0 && minutes <= FRONTEND_WS_TIMEOUT_MINUTES_MAX
@@ -825,7 +835,9 @@ const settings = ref({
   online_threshold_seconds: '',
   public_history_hours: '',
   tg_notify: '0',
+  offline_notify_scope: [],
   expire_reminder: '0',
+  expire_reminder_scope: [],
   resource_alert_rules: [],
   tg_bot_token: '',
   tg_chat_id: '',
@@ -833,6 +845,7 @@ const settings = ref({
   expire_notification_time: '12',
   traffic_report_enabled: false,
   traffic_report_types: [],
+  traffic_report_scope: [],
   notification_webhook_enabled: false,
   notification_webhook_url: '',
   notification_webhook_method: 'POST',
@@ -1287,7 +1300,9 @@ const loadSettings = async () => {
         online_threshold_seconds: normalizeOnlineThresholdSecondsSetting(settingsData.online_threshold_seconds),
         public_history_hours: normalizePublicHistoryHoursSetting(settingsData.public_history_hours),
         tg_notify: normalizeTgNotifySetting(settingsData.tg_notify),
+        offline_notify_scope: normalizeServerScopeSetting(settingsData.offline_notify_scope),
         expire_reminder: normalizeExpireReminderSetting(settingsData.expire_reminder),
+        expire_reminder_scope: normalizeServerScopeSetting(settingsData.expire_reminder_scope),
         resource_alert_rules: normalizeResourceAlertRulesSetting(settingsData.resource_alert_rules),
         tg_bot_token: settingsData.tg_bot_token || '',
         tg_chat_id: settingsData.tg_chat_id || '',
@@ -1295,6 +1310,7 @@ const loadSettings = async () => {
         expire_notification_time: normalizeExpireNotificationTimeSetting(settingsData.expire_notification_time),
         traffic_report_enabled: settingsData.traffic_report_enabled === 'true' || settingsData.traffic_report_enabled === true,
         traffic_report_types: normalizeTrafficReportTypesSetting(settingsData.traffic_report_types, settingsData.traffic_report_enabled),
+        traffic_report_scope: normalizeServerScopeSetting(settingsData.traffic_report_scope),
         notification_webhook_enabled: settingsData.notification_webhook_enabled === 'true' || settingsData.notification_webhook_enabled === true,
         notification_webhook_url: settingsData.notification_webhook_url || '',
         notification_webhook_method: String(settingsData.notification_webhook_method || 'POST').toUpperCase() === 'GET' ? 'GET' : 'POST',
@@ -1479,13 +1495,16 @@ const saveSettings = async () => {
       online_threshold_seconds: normalizeOnlineThresholdSecondsSetting(settings.value.online_threshold_seconds),
       public_history_hours: normalizePublicHistoryHoursSetting(settings.value.public_history_hours),
       tg_notify: normalizeTgNotifySetting(settings.value.tg_notify),
+      offline_notify_scope: normalizeServerScopeSetting(settings.value.offline_notify_scope).join(','),
       expire_reminder: normalizeExpireReminderSetting(settings.value.expire_reminder),
+      expire_reminder_scope: normalizeServerScopeSetting(settings.value.expire_reminder_scope).join(','),
       resource_alert_rules: normalizeResourceAlertRulesSetting(settings.value.resource_alert_rules),
       tg_bot_token: settings.value.tg_bot_token,
       tg_chat_id: settings.value.tg_chat_id,
       notification_timezone: normalizeNotificationTimezoneSetting(settings.value.notification_timezone),
       expire_notification_time: normalizeExpireNotificationTimeSetting(settings.value.expire_notification_time),
       traffic_report_types: trafficReportTypes.join(','),
+      traffic_report_scope: normalizeServerScopeSetting(settings.value.traffic_report_scope).join(','),
       traffic_report_enabled: trafficReportTypes.length > 0 ? 'true' : 'false',
       notification_webhook_enabled: settings.value.notification_webhook_enabled ? 'true' : 'false',
       notification_webhook_url: settings.value.notification_webhook_url,

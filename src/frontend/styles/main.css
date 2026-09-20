@@ -2786,6 +2786,73 @@ body::before {
     cursor: pointer;
 }
 
+.server-scope {
+    margin-top: 6px;
+}
+
+.server-scope summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--accent-cyan);
+    user-select: none;
+}
+
+.server-scope-box {
+    max-height: 132px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.server-scope-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.server-scope-item input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-green);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.server-scope-item span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.server-scope-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+}
+
+.server-scope-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--accent-cyan);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.server-scope-btn:hover {
+    text-decoration: underline;
+}
+
 .wss-schedule {
     margin: 0 0 16px;
     padding: 14px 0 16px;

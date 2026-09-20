@@ -275,6 +275,21 @@
             <select v-model="settings.tg_notify" class="form-select">
               <option v-for="option in offlineNotifyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
+            <details class="server-scope">
+              <summary>{{ trans.notifyScopeLabel || 'Server Scope' }} · {{ scopeSummaryText(settings.offline_notify_scope) }}</summary>
+              <div class="server-scope-box">
+                <label v-for="server in servers" :key="server.id" class="server-scope-item" :title="server.name">
+                  <input type="checkbox" :value="String(server.id)" v-model="settings.offline_notify_scope">
+                  <span>{{ server.name }}</span>
+                </label>
+                <div v-if="servers.length === 0" class="text-muted text-sm">{{ trans.notifyScopeNoServers || 'No servers yet' }}</div>
+              </div>
+              <div class="server-scope-actions">
+                <button type="button" class="server-scope-btn" @click="selectAllScope('offline_notify_scope')">{{ trans.notifyScopeSelectAll || 'Select all' }}</button>
+                <button type="button" class="server-scope-btn" @click="clearScope('offline_notify_scope')">{{ trans.notifyScopeClear || 'Clear' }}</button>
+                <span class="text-muted text-sm">{{ trans.notifyScopeHint || 'Leave empty to include all servers.' }}</span>
+              </div>
+            </details>
           </div>
 
           <div class="form-group flex-1">
@@ -282,6 +297,21 @@
             <select v-model="settings.expire_reminder" class="form-select">
               <option v-for="option in expireReminderOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
+            <details class="server-scope">
+              <summary>{{ trans.notifyScopeLabel || 'Server Scope' }} · {{ scopeSummaryText(settings.expire_reminder_scope) }}</summary>
+              <div class="server-scope-box">
+                <label v-for="server in servers" :key="server.id" class="server-scope-item" :title="server.name">
+                  <input type="checkbox" :value="String(server.id)" v-model="settings.expire_reminder_scope">
+                  <span>{{ server.name }}</span>
+                </label>
+                <div v-if="servers.length === 0" class="text-muted text-sm">{{ trans.notifyScopeNoServers || 'No servers yet' }}</div>
+              </div>
+              <div class="server-scope-actions">
+                <button type="button" class="server-scope-btn" @click="selectAllScope('expire_reminder_scope')">{{ trans.notifyScopeSelectAll || 'Select all' }}</button>
+                <button type="button" class="server-scope-btn" @click="clearScope('expire_reminder_scope')">{{ trans.notifyScopeClear || 'Clear' }}</button>
+                <span class="text-muted text-sm">{{ trans.notifyScopeHint || 'Leave empty to include all servers.' }}</span>
+              </div>
+            </details>
           </div>
 
           <div class="form-group flex-1">
@@ -334,6 +364,21 @@
               </label>
             </div>
             <div class="text-muted text-sm mt-1">{{ trans.trafficReportTypesHint || 'Uncheck all to disable traffic reports.' }}</div>
+            <details class="server-scope">
+              <summary>{{ trans.notifyScopeLabel || 'Server Scope' }} · {{ scopeSummaryText(settings.traffic_report_scope) }}</summary>
+              <div class="server-scope-box">
+                <label v-for="server in servers" :key="server.id" class="server-scope-item" :title="server.name">
+                  <input type="checkbox" :value="String(server.id)" v-model="settings.traffic_report_scope">
+                  <span>{{ server.name }}</span>
+                </label>
+                <div v-if="servers.length === 0" class="text-muted text-sm">{{ trans.notifyScopeNoServers || 'No servers yet' }}</div>
+              </div>
+              <div class="server-scope-actions">
+                <button type="button" class="server-scope-btn" @click="selectAllScope('traffic_report_scope')">{{ trans.notifyScopeSelectAll || 'Select all' }}</button>
+                <button type="button" class="server-scope-btn" @click="clearScope('traffic_report_scope')">{{ trans.notifyScopeClear || 'Clear' }}</button>
+                <span class="text-muted text-sm">{{ trans.notifyScopeHint || 'Leave empty to include all servers.' }}</span>
+              </div>
+            </details>
           </div>
 
           <div class="form-group flex-1">
@@ -801,6 +846,20 @@ defineEmits([
   'save-settings', 'upload-bg', 'upload-bg-mobile', 'upload-favicon',
   'send-test-notification', 'query-d1-usage'
 ])
+
+const scopeSummaryText = (scope) => {
+  const count = Array.isArray(scope) ? scope.length : 0
+  if (count === 0) return props.trans.notifyScopeAll || 'All servers'
+  return (props.trans.notifyScopeSelected || '{count} selected').replace('{count}', count)
+}
+
+const selectAllScope = (field) => {
+  props.settings[field] = (props.servers || []).map(server => String(server.id))
+}
+
+const clearScope = (field) => {
+  props.settings[field] = []
+}
 
 const commonNotificationTimezones = [
   'UTC',

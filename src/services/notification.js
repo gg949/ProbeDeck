@@ -16,6 +16,7 @@ import {
   normalizeNotificationWebhookFormat,
   normalizeNotificationWebhookHeaders,
   normalizeNotificationWebhookMethod,
+  parseServerScope,
   resolveTrafficReportTypes,
   debug
 } from '../utils/settings.js';
@@ -907,6 +908,11 @@ export async function sendNotification(settings, msg, notificationContext = {}) 
   }
 }
 
+// 通知服务器范围：空范围 = 全部服务器
+function isServerInScope(scopeSet, serverId) {
+  return scopeSet.size === 0 || scopeSet.has(String(serverId ?? ''));
+}
+
 export async function checkOfflineNodes(db) {
   const siteSettings = await loadSiteSettings(db);
   const tgNotifyMinutes = getTgNotifyMinutes(siteSettings.tg_notify);
@@ -933,11 +939,13 @@ export async function checkOfflineNodes(db) {
 
     const now = Date.now();
     const offlineThreshold = tgNotifyMinutes * 60 * 1000;
+    const offlineScope = parseServerScope(siteSettings.offline_notify_scope);
     const offlineNodes = [];
     const recoveredNodes = [];
 
     for (const s of allServers) {
       if (s.offline_notify_disabled === '1') continue;
+      if (!isServerInScope(offlineScope, s.id)) continue;
 
       const latestMetrics = latestMetricsMap.get(s.id);
       
@@ -1428,6 +1436,7 @@ export async function checkTrafficReports(db, options = {}) {
   if (reportTypes.length === 0) return false;
   const servers = await getAllServers(db);
   const latestMetrics = await getLatestMetricsForAllServers(db);
+  const trafficScope = parseServerScope(settings.traffic_report_scope);
   const periodKeys = getTrafficPeriodKeys(now, settings.notification_timezone);
   const claimedReportTypes = await claimTrafficReportTypes(
     db,
@@ -1459,7 +1468,9 @@ export async function checkTrafficReports(db, options = {}) {
         claimedReportTypes,
         settings.notification_timezone
       );
+      const inScope = isServerInScope(trafficScope, server.id);
       for (const type of claimedReportTypes) {
+        if (!inScope) continue;
         if (result.usage[type]) {
           usageRows[type].push({ server_id: server.id, ...result.usage[type] });
           continue;
@@ -1523,6 +1534,7 @@ export async function checkExpiringServers(db, options = {}) {
     const allServers = await getAllServers(db);
     const expiringServers = [];
     const reminderDays = getExpireReminderDays(siteSettings.expire_reminder);
+    const expireScope = parseServerScope(siteSettings.expire_reminder_scope);
     const shouldNotify = reminderDays > 0 && hasNotificationTarget(siteSettings);
     let hasRenewedServers = false;
     const currentDateSerial = getZonedDateSerial(now, siteSettings.notification_timezone);
@@ -1543,6 +1555,7 @@ export async function checkExpiringServers(db, options = {}) {
       }
 
       if (!shouldNotify) continue;
+      if (!isServerInScope(expireScope, s.id)) continue;
 
       const expireDateSerial = parseDateSerial(s.expire_date);
       if (!Number.isFinite(expireDateSerial) || !Number.isFinite(currentDateSerial)) continue;

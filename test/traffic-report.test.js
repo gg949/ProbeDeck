@@ -11,7 +11,7 @@ import {
   normalizeTrafficSnapshots,
   updateTrafficSnapshots
 } from '../src/services/notification.js';
-import { normalizeTrafficReportTypes, resolveTrafficReportTypes } from '../src/utils/settings.js';
+import { normalizeServerScope, normalizeTrafficReportTypes, parseServerScope, resolveTrafficReportTypes } from '../src/utils/settings.js';
 
 const timezone = 'Asia/Shanghai';
 const server = { id: 'server-1', name: 'Tokyo' };
@@ -197,4 +197,13 @@ test('traffic report content appends history backfill coverage notes', () => {
 
   assert.match(report.msg, /（自 09\/28 起）/);
   assert.match(report.msg, /总计/);
+});
+
+test('notification server scope: empty means all, duplicates are removed', () => {
+  assert.deepEqual([...parseServerScope('')], []);
+  assert.deepEqual([...parseServerScope(null)], []);
+  assert.deepEqual([...parseServerScope(' a , b ,a,, ')].sort(), ['a', 'b']);
+  assert.equal(normalizeServerScope(' a , b ,a,, '), 'a,b');
+  assert.equal(normalizeServerScope(['x', ' x ', '', 'y']), 'x,y');
+  assert.equal(normalizeServerScope(undefined), '');
 });

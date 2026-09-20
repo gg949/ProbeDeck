@@ -6,7 +6,7 @@ import {
 
 export const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'custom_bg_mobile', 'favicon', 'custom_head', 'custom_script', 'csp_static', 'csp_api', 'display_mode', 'preferred_theme', 'default_language', 'theme_options'];
 
-export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_three_net_details', 'wss_report_enabled', 'wss_report_hours', 'frontend_ws_timeout_minutes', 'long_history_points', 'history_retention_days', 'online_threshold_seconds', 'public_history_hours', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'notification_timezone', 'expire_notification_time', 'traffic_report_enabled', 'traffic_report_types', 'notification_webhook_enabled', 'notification_webhook_url', 'notification_webhook_method', 'notification_webhook_format', 'notification_webhook_headers', 'notification_webhook_body', 'notification_template', 'notification_custom_script', 'notification_event_emojis', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'node_1', 'node_2', 'node_3', 'node_4', 'custom_ct_name', 'custom_cu_name', 'custom_cm_name', 'custom_bd_name', 'node_1_name', 'node_2_name', 'node_3_name', 'node_4_name', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
+export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_three_net_details', 'wss_report_enabled', 'wss_report_hours', 'frontend_ws_timeout_minutes', 'long_history_points', 'history_retention_days', 'online_threshold_seconds', 'public_history_hours', 'tg_notify', 'offline_notify_scope', 'tg_bot_token', 'tg_chat_id', 'notification_timezone', 'expire_notification_time', 'traffic_report_enabled', 'traffic_report_types', 'traffic_report_scope', 'notification_webhook_enabled', 'notification_webhook_url', 'notification_webhook_method', 'notification_webhook_format', 'notification_webhook_headers', 'notification_webhook_body', 'notification_template', 'notification_custom_script', 'notification_event_emojis', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'node_1', 'node_2', 'node_3', 'node_4', 'custom_ct_name', 'custom_cu_name', 'custom_cm_name', 'custom_bd_name', 'node_1_name', 'node_2_name', 'node_3_name', 'node_4_name', 'expire_reminder', 'expire_reminder_scope', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
 
 export const TG_NOTIFY_MINUTES_MIN = 2;
 export const TG_NOTIFY_MINUTES_MAX = 30;
@@ -93,12 +93,14 @@ const defaults = {
   online_threshold_seconds: '',
   public_history_hours: '',
   tg_notify: '0',
+  offline_notify_scope: '',
   tg_bot_token: '',
   tg_chat_id: '',
   notification_timezone: DEFAULT_NOTIFICATION_TIMEZONE,
   expire_notification_time: DEFAULT_EXPIRE_NOTIFICATION_TIME,
   traffic_report_enabled: 'false',
   traffic_report_types: '',
+  traffic_report_scope: '',
   notification_webhook_enabled: 'false',
   notification_webhook_url: '',
   notification_webhook_method: 'POST',
@@ -132,6 +134,7 @@ const defaults = {
   node_3_name: 'Node 3',
   node_4_name: 'Node 4',
   expire_reminder: '0',
+  expire_reminder_scope: '',
   resource_alert_rules: [],
   theme_url: '',
   history_id_optimized: 'false',
@@ -349,6 +352,26 @@ export function normalizeTrafficReportTypes(value) {
     if (TRAFFIC_REPORT_TYPES.includes(key)) picked.add(key);
   }
   return TRAFFIC_REPORT_TYPES.filter(type => picked.has(type)).join(',');
+}
+
+// 通知服务器范围：逗号分隔的服务器 ID；留空 = 全部服务器（通知侧用 parseServerScope 判断）
+export function normalizeServerScope(value) {
+  const source = Array.isArray(value) ? value : String(value ?? '').split(',');
+  const picked = [];
+  const seen = new Set();
+  for (const item of source) {
+    const id = String(item || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    picked.push(id);
+  }
+  return picked.join(',');
+}
+
+// 解析通知范围：返回 Set（空集 = 全部服务器）
+export function parseServerScope(value) {
+  const normalized = normalizeServerScope(value);
+  return new Set(normalized ? normalized.split(',') : []);
 }
 
 // 实际生效的流量报告类型：显式配置优先；未配置（空）时回退旧版开关（开启 = 全部，兼容升级前配置）
@@ -784,6 +807,9 @@ export async function loadSiteSettings(db, options = {}) {
     result.expire_notification_time = normalizeExpireNotificationTime(result.expire_notification_time);
     result.traffic_report_enabled = normalizeBooleanSetting(result.traffic_report_enabled);
     result.traffic_report_types = normalizeTrafficReportTypes(result.traffic_report_types);
+    result.offline_notify_scope = normalizeServerScope(result.offline_notify_scope);
+    result.expire_reminder_scope = normalizeServerScope(result.expire_reminder_scope);
+    result.traffic_report_scope = normalizeServerScope(result.traffic_report_scope);
   } catch (e) {
     console.error('加载站点设置失败:', e);
   }
@@ -914,6 +940,9 @@ export async function saveSiteOptions(db, updates) {
   siteOptions.expire_notification_time = normalizeExpireNotificationTime(siteOptions.expire_notification_time);
   siteOptions.traffic_report_enabled = normalizeBooleanSetting(siteOptions.traffic_report_enabled);
   siteOptions.traffic_report_types = normalizeTrafficReportTypes(siteOptions.traffic_report_types);
+  siteOptions.offline_notify_scope = normalizeServerScope(siteOptions.offline_notify_scope);
+  siteOptions.expire_reminder_scope = normalizeServerScope(siteOptions.expire_reminder_scope);
+  siteOptions.traffic_report_scope = normalizeServerScope(siteOptions.traffic_report_scope);
   
   await db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'

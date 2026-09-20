@@ -296,6 +296,7 @@ Configured under Admin → Settings → Notifications; everything is computed lo
 
 - **Delivery methods**: built-in channels (Telegram / WeCom / Feishu / DingTalk / Bark / ServerChan / WxPusher / Gotify / OneBot), or a **custom Webhook** (URL + body template with `{{variables}}` auto-replaced); you can also paste a **custom JavaScript notification script** to reach any push service (the `sendMessage(message, title)` contract, optional `sendEvent(event)`, executed in a server-side sandbox). A non-empty JS script takes priority and handles all notifications.
 - **Per-event emoji**: customize the emoji for offline / recovery / expiration / resource-alert / traffic / test events.
+- **Server scope**: offline alerts, expiration reminders and traffic reports can be limited to selected servers (leave empty to include all).
 - **Traffic reports**: check the types you want — **daily** (every day) / **weekly** (Mondays) / **monthly** (1st of month); uncheck all to disable. Sent at the "notification time" in your notification timezone, based on network-interface counters (a server or probe restart may reset them and affect the current period). First-enable / post-interruption periods are backfilled from history data; partial coverage is marked with a start date.
 - Enabling reports requires at least one working delivery method; use "Send test" to verify your setup.
 

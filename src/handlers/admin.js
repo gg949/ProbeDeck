@@ -1,7 +1,7 @@
 import { buildAuthCookie, buildClearAuthCookie, checkAuth, simpleAuthResponse, validateCredentials, generateToken } from '../middleware/auth.js';
 import { getLatestMetricsForAllServers } from '../database/schema.js';
 import { getAllServers, clearServersListCache } from '../utils/cache.js';
-import { clearAppearanceSettingsCache, isValidThemeOptions, isWssReportConfigured, isWssReportEnabled, normalizeBooleanSetting, normalizeDefaultLanguage, normalizeDisplayMode, normalizeExpireNotificationTime, normalizeExpireReminder, normalizeFrontendWsTimeoutMinutes, normalizeHistoryRetentionDays, normalizeLongHistoryPoints, normalizeNotificationCustomScript, normalizeNotificationEventEmojis, normalizeNotificationTemplate, normalizeOnlineThresholdSeconds, normalizePublicHistoryHours, resolveOnlineThresholdSeconds, normalizeNotificationTimezone, normalizeNotificationWebhookBody, normalizeNotificationWebhookFormat, normalizeNotificationWebhookHeaders, normalizeNotificationWebhookMethod, normalizePreferredTheme, normalizeResourceAlertRules, normalizeTgNotify, normalizeTrafficReportTypes, normalizeWssReportHours, resolveTrafficReportTypes, saveSiteOptions, saveThemeOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
+import { clearAppearanceSettingsCache, isValidThemeOptions, isWssReportConfigured, isWssReportEnabled, normalizeBooleanSetting, normalizeDefaultLanguage, normalizeDisplayMode, normalizeExpireNotificationTime, normalizeExpireReminder, normalizeFrontendWsTimeoutMinutes, normalizeHistoryRetentionDays, normalizeLongHistoryPoints, normalizeNotificationCustomScript, normalizeNotificationEventEmojis, normalizeNotificationTemplate, normalizeOnlineThresholdSeconds, normalizePublicHistoryHours, resolveOnlineThresholdSeconds, normalizeNotificationTimezone, normalizeNotificationWebhookBody, normalizeNotificationWebhookFormat, normalizeNotificationWebhookHeaders, normalizeNotificationWebhookMethod, normalizePreferredTheme, normalizeResourceAlertRules, normalizeServerScope, normalizeTgNotify, normalizeTrafficReportTypes, normalizeWssReportHours, resolveTrafficReportTypes, saveSiteOptions, saveThemeOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { verifyTurnstileToken, hashPassword } from '../utils/common.js';
 import { AppError, createSuccessResponse, createBadRequestResponse, createUnauthorizedResponse, createErrorResponse } from '../utils/errors.js';
@@ -975,6 +975,8 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
             siteOptions[field] = normalizeTrafficReportTypes(settings[field]);
           } else if (field === 'traffic_report_enabled') {
             siteOptions[field] = normalizeBooleanSetting(settings[field]);
+          } else if (field === 'offline_notify_scope' || field === 'expire_reminder_scope' || field === 'traffic_report_scope') {
+            siteOptions[field] = normalizeServerScope(settings[field]);
           } else if (field === 'notification_webhook_enabled') {
             siteOptions[field] = normalizeBooleanSetting(settings[field]);
           } else if (field === 'notification_webhook_method') {
