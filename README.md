@@ -10,7 +10,7 @@
 
 **把探针面板搬进你自己的 Docker** — 单容器部署 · 数据全本地 · 上报最低 1 秒 · 1C1G 就能跑
 
-[🔗 在线演示](https://probedeck.guoba.cc.cd/) · [🚀 快速开始](#快速开始) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md) · [☕ 支持项目](#支持项目)
+[🔗 在线演示](https://probedeck.guoba.cc.cd/) · [🚀 快速开始](#快速开始) · [🐳 探针 Docker 部署](#用-docker-部署探针unraid--群晖--1panel) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md) · [☕ 支持项目](#支持项目)
 
 **[English](README.en.md) | 中文**
 
@@ -59,7 +59,7 @@
 
 - **🚀 一条命令部署** — 单容器跑起全部服务；`API_SECRET` 首次启动自动生成，零配置开箱即用
 - **🪶 极致轻量** — 面板 ~50-75MB 内存、探针仅 ~8MB（CPU 均值 <0.1%），1C1G 小鸡也能长期跑
-- **⚡ 秒级监控** — 上报间隔最低 **1 秒**，WSS 长连接实时推送；探针支持 Linux / Alpine / OpenWrt / macOS / 群晖 / fnOS / Windows
+- **⚡ 秒级监控** — 上报间隔最低 **1 秒**，WSS 长连接实时推送；探针支持 Linux / Alpine / OpenWrt / macOS / 群晖 / fnOS / Windows，**也支持 Docker / Unraid 部署**
 - **🔒 数据全本地** — SQLite 全量落盘，无云依赖、无额度限制；备份 = 复制一个目录
 - **🛡️ 安全架构** — 探针纯单向上报、零入站端口、不接收任何服务器指令；面板被攻破也碰不到你的被控机器
 - **🔔 通知渠道齐全** — Telegram / 企业微信 / 飞书 / 钉钉 / Bark / Server酱 / WxPusher / Gotify / OneBot / 自定义 Webhook
@@ -186,6 +186,31 @@ docker compose -f docker-compose.build.yml up -d --build
 > 安装命令里的地址取自你访问面板时的地址。建议先配好 HTTPS 反代（见下节）再用域名访问，
 > 探针就会通过 HTTPS 上报；直接用 `http://IP:17986` 也可以，但密钥会明文传输。
 
+#### 用 Docker 部署探针（Unraid / 群晖 / 1Panel）
+
+点击「安装命令」后，**目标系统**下拉里选 **Docker / Unraid**，命令框会直接生成可用的 `docker run` 命令（自动带上该服务器的 ID 与密钥），复制执行即可：
+
+```bash
+docker run -d \
+  --name cf-probe \
+  --restart unless-stopped \
+  -e SERVER_ID=<服务器ID> \
+  -e SECRET=<服务器密钥> \
+  -e WORKER_URL=https://<面板地址>/update \
+  -v /opt/cf-probe:/etc/cf-probe \
+  ghcr.io/gg949/cfsm-agent:latest
+```
+
+镜像支持 amd64 / arm64。要点：
+
+- `/etc/cf-probe` **必须挂卷**（存放配置与流量计数），路径固定、内容持久化
+- 默认 bridge 网络下只统计容器自己的虚拟网卡，**要监控宿主机真实流量请加 `--network host`**
+- 容器内已禁用自动更新，升级方式 = 重新拉镜像重建容器
+- Unraid 用户可给容器配图标：Docker 页 → 点容器 → **Icon URL** 填
+  `https://raw.githubusercontent.com/gg949/cfsm-agent/main/docker/icon.png`
+
+探针的完整 Docker 文档见 [cfsm-agent/docker.md](https://github.com/gg949/cfsm-agent/blob/main/docker.md)。
+
 ## 反向代理教程
 
 ### 方案一：Cloudflare 隧道（无需公网 IP、无需开端口、自带 HTTPS）
@@ -284,6 +309,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/gg949/Nginx-X/main/insta
 
 - **HTTP 模式**（默认）：探针每隔一段时间上报一次；本移植版已解除原版的 Cloudflare 限制，最小可设 **1 秒**（管理面板 → 编辑服务器 → 上报间隔，可选 1 / 3 / 5 / 10 / 15 / 20 / 30 / 60 / 120 / 180 秒）。
 - **WSS 模式**（准实时）：设置里开启「Agent WSS 上报」并勾选全部时段后，探针与面板保持 WebSocket 长连接，数据最快 **1 秒**推送一次（编辑服务器 → WSS 上报间隔）。原版因 Cloudflare 额度限制做了时段选择，VPS 部署无此限制，**24 小时全开即可**。
+- **离线判定阈值**：面板默认超过 **300 秒**没收到上报才判定离线（防止网络抖动误报），可在 管理面板 → 设置 → 显示选项 → 「离线判定阈值」调整（60 秒 ~ 3600 秒）。探针卸载/停机后，在阈值时长内仍会显示"在线"属正常现象。
 
 ## 通知与流量报告
 
@@ -487,7 +513,16 @@ rm -rf /opt/probedeck
 
 **Q：探针一直显示离线？**
 检查：被控机能访问上报地址（`curl 地址/api/config`）、防火墙放行、HTTPS 证书有效、
-探针进程在运行（`systemctl status cf-probe`）。
+探针进程在运行（`systemctl status cf-probe`；Docker 部署用 `docker logs cf-probe`）。
+另外确认「离线判定阈值」（设置 → 显示选项）——刚装上或刚重启的探针在阈值时长内会显示在线，属正常。
+
+**Q：Docker 部署的探针流量统计偏小？**
+默认 bridge 网络下探针只能看到容器自己的虚拟网卡。要统计宿主机真实流量，重建容器时加 `--network host`。
+
+**Q：Docker 部署的探针怎么升级？**
+容器内已禁用自动更新。重新拉镜像重建即可：
+`docker pull ghcr.io/gg949/cfsm-agent:latest && docker stop cf-probe && docker rm cf-probe`，
+然后用原来的 `docker run` 命令重建（环境变量不变，`/etc/cf-probe` 卷里的配置和流量计数保留）。
 
 **Q：地区都显示空白？**
 查看启动日志中"地区识别"一行：若显示"已降级"说明数据库未就绪——联网后重启容器会自动下载，

@@ -10,7 +10,7 @@
 
 **Bring your server-status panel into your own Docker** — single-container deploy · 100% local data · report interval down to 1 second · runs great on a 1C1G VPS
 
-[🔗 Live Demo](https://probedeck.guoba.cc.cd/) · [🚀 Quick Start](#quick-start) · [🔄 Migrate from Cloudflare](#migrating-from-cloudflare) · [🎨 Theme Development](theme-develop.md) · [📖 API Reference](API.md) · [☕ Support](#support-the-project)
+[🔗 Live Demo](https://probedeck.guoba.cc.cd/) · [🚀 Quick Start](#quick-start) · [🐳 Probe Docker Deploy](#deploy-the-probe-with-docker-unraid-synology-1panel) · [🔄 Migrate from Cloudflare](#migrating-from-cloudflare) · [🎨 Theme Development](theme-develop.md) · [📖 API Reference](API.md) · [☕ Support](#support-the-project)
 
 **English | [中文](README.md)**
 
@@ -59,7 +59,7 @@ with the original — existing probe agents need no changes, and the theme ecosy
 
 - **🚀 One-command deploy** — everything runs in a single container; `API_SECRET` is auto-generated on first launch, zero config required
 - **🪶 Featherweight** — panel uses ~50-75MB RAM, probe only ~8MB (CPU average <0.1%); runs happily on a 1C1G VPS
-- **⚡ Second-level monitoring** — report interval down to **1 second**, near-real-time push over WSS; probes for Linux / Alpine / OpenWrt / macOS / Synology / fnOS / Windows
+- **⚡ Second-level monitoring** — report interval down to **1 second**, near-real-time push over WSS; probes for Linux / Alpine / OpenWrt / macOS / Synology / fnOS / Windows, **plus Docker / Unraid deployments**
 - **🔒 100% local data** — everything stays in a local SQLite database: no cloud dependency, no quotas; backup = copy one directory
 - **🛡️ Secure by design** — probes only report outbound: no inbound port, no remote-command capability; even a compromised panel can never touch your monitored machines
 - **🔔 Rich notification channels** — Telegram / WeCom / Feishu / DingTalk / Bark / ServerChan / WxPusher / Gotify / OneBot / custom Webhook
@@ -190,6 +190,32 @@ docker compose -f docker-compose.build.yml up -d --build
 > set up an HTTPS reverse proxy first (see below) and then use your domain, so probes report over HTTPS.
 > Plain `http://IP:17986` also works, but the secret is transmitted in cleartext.
 
+#### Deploy the probe with Docker (Unraid / Synology / 1Panel)
+
+Open "Install command", pick **Docker / Unraid** in the **Target System** dropdown, and the command
+box generates a ready-to-use `docker run` command with that server's ID and secret filled in:
+
+```bash
+docker run -d \
+  --name cf-probe \
+  --restart unless-stopped \
+  -e SERVER_ID=<server ID> \
+  -e SECRET=<server secret> \
+  -e WORKER_URL=https://<panel address>/update \
+  -v /opt/cf-probe:/etc/cf-probe \
+  ghcr.io/gg949/cfsm-agent:latest
+```
+
+The image supports amd64 / arm64. Key points:
+
+- Mount `/etc/cf-probe` as a **volume** (config + traffic counters); the path is fixed and persists
+- Default bridge networking only sees the container's own vNIC — **add `--network host` to monitor the host's real traffic**
+- Auto-update is disabled inside the container; upgrade = re-pull the image and recreate
+- Unraid users can set a container icon: Docker tab → click the container → **Icon URL** →
+  `https://raw.githubusercontent.com/gg949/cfsm-agent/main/docker/icon.png`
+
+Full probe Docker docs: [cfsm-agent/docker.md](https://github.com/gg949/cfsm-agent/blob/main/docker.md).
+
 ## Reverse Proxy
 
 ### Option A: Cloudflare Tunnel (no public IP, no open ports, free HTTPS)
@@ -289,6 +315,7 @@ so the frontend and third-party themes read it the same way — no adaptation ne
 
 - **HTTP mode** (default): the probe reports at a fixed interval. This port removes the original Cloudflare limits — the minimum is **1 second** (Admin panel → Edit server → report interval; choices: 1 / 3 / 5 / 10 / 15 / 20 / 30 / 60 / 120 / 180 seconds).
 - **WSS mode** (near-real-time): enable "Agent WSS reporting" with all hours selected, and the probe keeps a WebSocket connection open, pushing data as fast as **1 second** (Edit server → WSS report interval). The original limited hours due to Cloudflare quotas; on your own VPS just enable **all 24 hours**.
+- **Offline threshold**: the panel marks a server offline after **300 seconds** without a report (prevents flapping on network jitter). Adjustable in Admin panel → Settings → Display options → "Offline threshold" (60 – 3600 seconds). A freshly installed or restarted probe showing "online" within that window is normal.
 
 ## Notifications & Traffic Reports
 
@@ -489,7 +516,15 @@ Run `npm run build:frontend` (Docker builds do this automatically).
 ① Click "Save settings" at the bottom of the page — uploading alone doesn't save; ② browsers cache favicons aggressively — hard-refresh (`Ctrl+F5`), try a private window or another browser; on mobile, clear the browser cache.
 
 **Q: The probe keeps showing offline?**
-Check: the machine can reach the reporting address (`curl <address>/api/config`), firewall allows it, HTTPS certificate is valid, and the probe process is running (`systemctl status cf-probe`).
+Check: the machine can reach the reporting address (`curl <address>/api/config`), firewall allows it, HTTPS certificate is valid, and the probe process is running (`systemctl status cf-probe`; for Docker deploys use `docker logs cf-probe`). Also check the "Offline threshold" setting — a probe that was just installed or restarted shows "online" for the duration of the threshold, which is expected.
+
+**Q: Docker-deployed probe reports less traffic than expected?**
+Default bridge networking only sees the container's own virtual NIC. To track the host's real traffic, recreate the container with `--network host`.
+
+**Q: How do I upgrade a Docker-deployed probe?**
+Auto-update is disabled inside the container. Re-pull the image and recreate:
+`docker pull ghcr.io/gg949/cfsm-agent:latest && docker stop cf-probe && docker rm cf-probe`,
+then run your original `docker run` command again (env vars unchanged; config and traffic counters in the `/etc/cf-probe` volume are preserved).
 
 **Q: All regions show empty?**
 Check the "Region detection" line in the startup log: if it says "degraded", the database isn't ready —
