@@ -10,7 +10,7 @@
 
 **Bring your server-status panel into your own Docker** — single-container deploy · 100% local data · report interval down to 1 second · runs great on a 1C1G VPS
 
-[🔗 Live Demo](https://probedeck.guoba.cc.cd/) · [🚀 Quick Start](#quick-start) · [🐳 Probe Docker Deploy](#deploy-the-probe-with-docker-unraid-synology-1panel) · [🔄 Migrate from Cloudflare](#migrating-from-cloudflare) · [🎨 Theme Development](theme-develop.md) · [📖 API Reference](API.md) · [☕ Support](#support-the-project)
+[🔗 Live Demo](https://probedeck.guoba.cc.cd/) · [🚀 Quick Start](#quick-start) · [💾 Data Backup & Migration](#data--backup) · [🐳 Probe Docker Deploy](#deploy-the-probe-with-docker-unraid-synology-1panel) · [🔄 Migrate from Cloudflare](#migrating-from-cloudflare) · [🎨 Theme Development](theme-develop.md) · [📖 API Reference](API.md) · [☕ Support](#support-the-project)
 
 **English | [中文](README.md)**
 
@@ -353,7 +353,89 @@ All optional — the app starts with zero configuration.
 | `/opt/probedeck/data/geoip/` | Auto-downloaded GeoIP database (if used) |
 | `/opt/probedeck/data/do-storage.json` | Small runtime state of the real-time broadcast module |
 
-Backup: stop the container and copy the whole `/opt/probedeck/data/` directory; restore: put it back and start.
+All data lives in this single directory: **backup = copy it, migrate = move it to another machine.**
+No import/export inside the panel is needed — with Docker, operating on the files directly is the simplest way.
+
+### Backup
+
+**Online backup (recommended, no downtime)** — SQLite's `.backup` produces a consistent
+snapshot without blocking panel writes. The image ships no sqlite3 CLI, so run it on the
+**host** (`apt install -y sqlite3` first):
+
+```bash
+# Run on the VPS: copy out of the container → snapshot on the host → clean up
+docker cp probedeck:/app/data/monitor.db /tmp/monitor-live.db
+docker cp probedeck:/app/data/monitor.db-wal /tmp/monitor-live.db-wal 2>/dev/null || true
+sqlite3 /tmp/monitor-live.db ".backup '/tmp/probedeck-$(date +%Y%m%d).db'"
+gzip -f "/tmp/probedeck-$(date +%Y%m%d).db"
+rm -f /tmp/monitor-live.db /tmp/monitor-live.db-wal
+```
+
+> Copying `-wal` along with `.db` matters: in WAL mode the newest data may still be in
+> the `-wal` file, so copying only `.db` can lose the last few minutes. `.backup` merges
+> both into one consistent snapshot.
+
+**Cold backup (safest, best for machine migration)** — stop the container first, then tar
+the whole directory to avoid any file-lock issues:
+
+```bash
+docker stop probedeck
+tar czf probedeck-data-$(date +%Y%m%d).tar.gz -C /opt probedeck/data
+docker start probedeck
+```
+
+> Keep at least the last 3–7 days of backups, and take a manual one before important changes.
+> Backups contain the server list and settings (password hashed), but **not** the probes
+> themselves — probes live on the monitored machines; reinstall them to resume reporting.
+
+### Scheduled backup (cron)
+
+Save this as `/etc/cron.daily/probedeck-backup` (and `chmod +x`) for a daily backup that
+keeps the last 7:
+
+```bash
+#!/bin/sh
+# Daily online backup, keep the last 7 (image has no sqlite3; host needs: apt install -y sqlite3)
+BACKUP_DIR=/opt/probedeck-backups
+mkdir -p "$BACKUP_DIR"
+STAMP=$(date +%Y%m%d)
+# Copy .db and -wal out first (WAL may hold the newest data), then merge into one snapshot
+docker cp probedeck:/app/data/monitor.db /tmp/pd-live.db
+docker cp probedeck:/app/data/monitor.db-wal /tmp/pd-live.db-wal 2>/dev/null || true
+sqlite3 /tmp/pd-live.db ".backup '$BACKUP_DIR/probedeck-$STAMP.db'"
+rm -f /tmp/pd-live.db /tmp/pd-live.db-wal
+gzip -f "$BACKUP_DIR/probedeck-$STAMP.db"
+ls -tp "$BACKUP_DIR"/probedeck-*.db.gz | grep -v '/$' | tail -n +8 | xargs -r rm -f
+```
+
+> Keeping backups outside `/opt/probedeck/` (e.g. `/opt/probedeck-backups/`) is safer —
+> uninstalling the panel (`rm -rf /opt/probedeck`) then won't take the backups with it.
+
+### Migrating to another VPS
+
+1. **Old machine**: pack the data directory with the cold backup above, copy it over:
+   ```bash
+   scp probedeck-data-*.tar.gz root@NEW_IP:/opt/
+   ```
+2. **New machine**: install Docker → start a fresh panel container (the Quick Start command) →
+   stop it → extract over the data directory → start again:
+   ```bash
+   docker stop probedeck
+   tar xzf /opt/probedeck-data-*.tar.gz -C /opt
+   docker start probedeck
+   ```
+3. Visit `http://IP:17986` on the new machine — servers, history, settings and the admin
+   password all carry over unchanged.
+
+> **Probes do not need reinstalling after migration**: a probe only knows its `SERVER_ID`
+> and `SECRET`; after moving the data, point it at the new panel address (update the
+> probe's `WORKER_URL` and restart the probe service, or reinstall with a freshly copied
+> command — either works).
+>
+> **Changed domain/IP without moving data**: probes drop off when the panel address changes;
+> re-run the install command from the panel's server list on each monitored machine — the
+> history stays intact.
+
 History retention is **configurable** (two ways; the panel setting wins):
 1. **Panel setting (recommended)**: Admin → Settings → Display options → "History retention days" — 7 / 14 / 30 / 60 / 90 / 180 / 365 days ("auto" uses the default of 14);
 2. Env var `HISTORY_RETENTION_DAYS=30` (handy for batch deployments; used when the panel is set to "auto").

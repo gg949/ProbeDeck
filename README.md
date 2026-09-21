@@ -10,7 +10,7 @@
 
 **把探针面板搬进你自己的 Docker** — 单容器部署 · 数据全本地 · 上报最低 1 秒 · 1C1G 就能跑
 
-[🔗 在线演示](https://probedeck.guoba.cc.cd/) · [🚀 快速开始](#快速开始) · [🐳 探针 Docker 部署](#用-docker-部署探针unraid--群晖--1panel) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md) · [☕ 支持项目](#支持项目)
+[🔗 在线演示](https://probedeck.guoba.cc.cd/) · [🚀 快速开始](#快速开始) · [💾 数据备份与迁移](#数据与备份) · [🐳 探针 Docker 部署](#用-docker-部署探针unraid--群晖--1panel) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md) · [☕ 支持项目](#支持项目)
 
 **[English](README.en.md) | 中文**
 
@@ -347,7 +347,84 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/gg949/Nginx-X/main/insta
 | `/opt/probedeck/data/geoip/` | 自动下载的 GeoIP 数据库（如使用） |
 | `/opt/probedeck/data/do-storage.json` | 实时广播模块的少量运行状态 |
 
-备份：停止容器后复制整个 `/opt/probedeck/data/` 目录；恢复：放回后启动。
+数据全部在这一个目录里，**备份 = 复制这个目录，迁移 = 把它放到另一台机器**。
+不需要在面板里做任何导入导出——Docker 部署下直接操作文件就是最简单的方式。
+
+### 备份
+
+**在线备份（推荐，不用停服务）**——SQLite 的 `.backup` 导出的是一致快照，
+不影响正在写入的面板。镜像里没有 sqlite3 命令行，所以在**宿主机**上执行
+（需要先装：`apt install -y sqlite3`）：
+
+```bash
+# 在 VPS 上执行：容器内备份 → 复制到宿主机 → 清理临时文件
+docker cp probedeck:/app/data/monitor.db /tmp/monitor-live.db
+docker cp probedeck:/app/data/monitor.db-wal /tmp/monitor-live.db-wal 2>/dev/null || true
+sqlite3 /tmp/monitor-live.db ".backup '/tmp/probedeck-$(date +%Y%m%d).db'"
+gzip -f "/tmp/probedeck-$(date +%Y%m%d).db"
+rm -f /tmp/monitor-live.db /tmp/monitor-live.db-wal
+```
+
+> 带上 `-wal` 一起复制是关键：WAL 模式下最新数据可能还在 `-wal` 文件里，
+> 只复制 `.db` 会丢最近几分钟的数据。`.backup` 会把两者合并成一致快照。
+
+**冷备份（最稳，适合换机迁移）**——先停容器再整目录打包，避免任何文件锁问题：
+
+```bash
+docker stop probedeck
+tar czf probedeck-data-$(date +%Y%m%d).tar.gz -C /opt probedeck/data
+docker start probedeck
+```
+
+> 建议至少保留最近 3-7 天的备份，重要节点变动前手动备一次。
+> 备份文件含服务器列表和设置（密码是哈希），但**不含**探针本身——探针装在被控机上，
+> 面板数据丢了重装探针即可恢复上报。
+
+### 定时自动备份（cron）
+
+把下面这段存成 `/etc/cron.daily/probedeck-backup`（记得 `chmod +x`），
+每天自动备份并只保留最近 7 份：
+
+```bash
+#!/bin/sh
+# 每天在线备份，保留最近 7 份（镜像内无 sqlite3，宿主机需 apt install -y sqlite3）
+BACKUP_DIR=/opt/probedeck-backups
+mkdir -p "$BACKUP_DIR"
+STAMP=$(date +%Y%m%d)
+# 先复制出 .db 和 -wal（WAL 里可能有最新数据），再用 .backup 合并成一致快照
+docker cp probedeck:/app/data/monitor.db /tmp/pd-live.db
+docker cp probedeck:/app/data/monitor.db-wal /tmp/pd-live.db-wal 2>/dev/null || true
+sqlite3 /tmp/pd-live.db ".backup '$BACKUP_DIR/probedeck-$STAMP.db'"
+rm -f /tmp/pd-live.db /tmp/pd-live.db-wal
+gzip -f "$BACKUP_DIR/probedeck-$STAMP.db"
+ls -tp "$BACKUP_DIR"/probedeck-*.db.gz | grep -v '/$' | tail -n +8 | xargs -r rm -f
+```
+
+> 备份目录放在 `/opt/probedeck/` 外面（如 `/opt/probedeck-backups/`）更稳，
+> 这样卸载面板时（`rm -rf /opt/probedeck`）不会顺手带走备份。
+
+### 迁移到另一台 VPS
+
+1. **旧机器**：按上面「冷备份」打包 `probedeck-data-日期.tar.gz`，传到新机器：
+   ```bash
+   scp probedeck-data-*.tar.gz root@新机器IP:/opt/
+   ```
+2. **新机器**：装 Docker → 起一个空面板容器（用快速开始的命令即可）→ 停掉它 →
+   解压覆盖数据目录 → 再启动：
+   ```bash
+   docker stop probedeck
+   tar xzf /opt/probedeck-data-*.tar.gz -C /opt
+   docker start probedeck
+   ```
+3. 访问新机器的 `http://IP:17986`——服务器、历史、设置、登录密码全部原样。
+
+> **迁移后探针不用重装**：探针只认 `SERVER_ID` + `SECRET`，数据搬过去后
+> 把域名/IP 换成新面板地址即可继续上报（改探针的 `WORKER_URL` 后重启探针服务，
+> 或在面板上重新生成安装命令重装——两种都行）。
+>
+> **换域名/IP 但不动数据**：面板地址变了探针会失联，在面板「编辑服务器」里
+> 重新复制安装命令到被控机执行即可，历史数据不会丢。
+
 历史数据保留时长**可自定义**，两种方式（面板设置优先）：
 1. **面板设置（推荐）**：管理面板 → 设置 → 显示选项 → 「历史数据保留天数」，可选 7 / 14 / 30 / 60 / 90 / 180 / 365 天（选「自动」则使用默认 14 天）；
 2. 环境变量 `HISTORY_RETENTION_DAYS=30`（适合批量部署；面板设置为「自动」时生效）。
