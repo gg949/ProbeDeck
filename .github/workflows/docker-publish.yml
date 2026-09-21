@@ -11,11 +11,28 @@
 # • 多架构：linux/amd64 + linux/arm64（ARM 服务器 / NAS / 树莓派直接可用）
 # • 首次发布后如果镜像不可见：GitHub 主页 → Packages → probedeck → Package settings
 #   → Change visibility → Public
+#
+# ⚠️ paths 白名单：只有会影响镜像内容的文件变动才触发构建。
+#    改 README / docs / themes.json 等纯文档不再白构建一次镜像
+#    （曾有用户反馈「更新文档也重新构建、GHCR 里多一个幽灵 sha 标签」）。
+#    新增会影响镜像的目录/文件时，记得同步加进下面这个列表。
 name: Build and publish Docker image
 
 on:
   push:
     branches: [main]
+    # 只在这些路径变化时构建（tags 触发不受 paths 限制）
+    paths:
+      - 'src/**'
+      - 'server/**'
+      - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'docker-entrypoint.sh'
+      - 'themes.json'
+      - 'version.json'
+      - '.github/workflows/docker-publish.yml'
     tags: ['v*']
   workflow_dispatch:
     inputs:
