@@ -1,10 +1,18 @@
 # 自动构建并发布 Docker 镜像到 GitHub Container Registry (GHCR)
 #
-# • 推送到 main 分支：构建并推送 latest + sha 标签
-# • 推送版本标签（如 v2.8.7）：构建并推送对应版本标签
+# 标签语义（重要）：
+#   • latest        = 当前正式版。只在「手动 Run workflow 且填写 version」时更新，
+#                     不随 main 推送自动覆盖——避免文档更新/中间提交污染它，
+#                     也让 :latest 部署的用户只会拿到发过版的镜像。
+#   • vX.Y.Z        = 版本标签。手动 Run workflow 填 version 时推送（与 Release 一致），
+#                     或直接推 v* tag（type=ref,event=tag）。
+#   • sha-xxxxxxx   = 提交存档。main 推送时打，仅用于追溯某次提交构建了什么，
+#                     不是给部署用的。
+#
 # • 手动触发（推荐流程）：
 #     发布新版时 → Actions → "Build and publish Docker image" → Run workflow →
 #     version 填写与 Release 相同的版本号（如 v2.8.7）→ 运行
+#     （会同时更新 v2.8.7 和 latest 两个标签）
 #   （说明：Create Release 工作流自动推送的 tag 不会触发本工作流，
 #    这是 GitHub 的防递归限制，因此用手动触发补版本标签）
 # • 镜像地址：ghcr.io/<仓库所有者>/probedeck:<版本号 | latest>
@@ -12,9 +20,8 @@
 # • 首次发布后如果镜像不可见：GitHub 主页 → Packages → probedeck → Package settings
 #   → Change visibility → Public
 #
-# ⚠️ paths 白名单：只有会影响镜像内容的文件变动才触发构建。
-#    改 README / docs / themes.json 等纯文档不再白构建一次镜像
-#    （曾有用户反馈「更新文档也重新构建、GHCR 里多一个幽灵 sha 标签」）。
+# ⚠️ paths 白名单：只有会影响镜像内容的文件变动才触发 main 推送构建。
+#    改 README / docs / themes.json 等纯文档不再白构建一次镜像。
 #    新增会影响镜像的目录/文件时，记得同步加进下面这个列表。
 name: Build and publish Docker image
 
@@ -76,9 +83,13 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=tag
-            type=raw,value=latest,enable=${{ github.ref_type == 'branch' && github.ref_name == 'main' }}
+            # latest 只在手动 Run workflow 且填了 version 时更新（语义 = 当前正式版）。
+            # 不再随 main 推送自动覆盖——避免「文档更新/中间提交」把 latest 冲掉，
+            # 也避免 :latest 部署的用户拉到未经发版的代码。
+            type=raw,value=latest,enable=${{ inputs.version != '' }}
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
-            type=sha
+            # main 推送只打 sha 标签做存档追溯，不产生面向部署的标签
+            type=sha,enable=${{ github.ref_type == 'branch' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
