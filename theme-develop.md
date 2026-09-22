@@ -2,6 +2,8 @@
 
 > 面向第三方主题开发作者的 API 参考。
 >
+> 本文档适配 ProbeDeck（CF-Server-Monitor 的 Docker / VPS 自托管移植版，当前版本 v2.12.x）：公开 API 与 WebSocket 协议与原版保持一致，并新增了若干面板级动态设置（在线判定阈值、访客历史范围、历史档位扩展至 30 天等）——相关数值请通过 `/api/config` 动态读取，不要写死。
+>
 > 本文档只保留第三方主题可用的公开 API、WebSocket 和静态目录约定，不介绍后台管理接口。
 >
 > 管理后台固定由默认主题接管；主题中的管理入口只能跳转到 `/admin#admin`。
@@ -17,6 +19,10 @@
 ## 目录
 
 - [0. 运行时配置、构建产物与版本升级提示](#0-运行时配置构建产物与版本升级提示)
+  - [0.1 API Base 配置](#01-api-base-配置)
+  - [0.2 主题构建产物约定](#02-主题构建产物约定)
+  - [0.3 版本升级提示](#03-版本升级提示)
+  - [0.4 面板运行时设置（主题适配要求）](#04-面板运行时设置主题适配要求)
 - [1. 鉴权与 Turnstile 流程](#1-鉴权与-turnstile-流程)
 - **[2. 公开 API](#2-公开-api)**
   - **[2.1 获取站点配置](#21-获取站点配置)**
@@ -46,7 +52,7 @@
 
 多个地址用英文逗号分隔。前端会按 `apiBase` 创建对应的 HTTP 请求和 WebSocket 连接，多站模式下每个后端只处理自己返回的服务器 ID。
 
-跨域部署主题时，还需要在面板服务器的环境变量中添加 `CORS_ALLOWED_ORIGINS`（Docker 部署通过 `-e CORS_ALLOWED_ORIGINS=...` 传入；Cloudflare Workers 部署则加到 Worker 环境变量）。把本地开发地址和最终上线域名加入白名单；如果 `API_BASE` 配置了多个面板地址，每个都要添加这一项。
+跨域部署主题时，还需要在面板服务器上添加环境变量 `CORS_ALLOWED_ORIGINS`（Docker 部署通过 `-e CORS_ALLOWED_ORIGINS=...` 传入；直接运行源码时以同名环境变量导出）。把本地开发地址和最终上线域名加入白名单；如果 `API_BASE` 配置了多个面板地址，每个都要添加这一项。
 
 ```
 https://localhost:5173,https://[你的github用户名].github.io
@@ -60,9 +66,8 @@ https://localhost:5173,https://[你的github用户名].github.io
 | --- | --- | --- |
 | `API_BASE` | 后端地址，多个地址用英文逗号分隔 | 必填 https://<你的面板地址> |
 | `TITLE` | 静态页面标题 | 选填 |
-| `BACKGROUND_IMAGE` | 静态页面背景图 | 选填 |
-| `CSP_API` | 追加到 `connect-src` 的 API 白名单 | 选填 |
-| `CSP_STATIC` | 追加到静态资源相关 CSP 指令的白名单 | 选填 |
+| `BACKGROUND_IMAGE` | 静态页面背景图（桌面端） | 选填 |
+| `BACKGROUND_IMAGE_MOBILE` | 静态页面背景图（移动端） | 选填 |
 
 运行：
 
@@ -70,7 +75,9 @@ https://localhost:5173,https://[你的github用户名].github.io
 npm run build:github-page
 ```
 
-纯静态构建时，`API_BASE`、`TITLE`、`BACKGROUND_IMAGE`、`CSP_API`、`CSP_STATIC` 会写入 HTML 运行时配置。后台外观设置中的 `csp_api` 和 `csp_static` 也会影响页面允许加载的第三方 API 和静态资源域名。
+纯静态构建时，`API_BASE`、`TITLE`、`BACKGROUND_IMAGE`、`BACKGROUND_IMAGE_MOBILE` 会写入 HTML 运行时配置。
+
+另外注意：通过面板加载的主题页面（面板配置了主题链接 / 主题商店启用主题时）由面板统一注入 CSP 响应头，主题页面需要加载的外部资源域名（字体、图片、外部 API / WebSocket 等）应由站点管理员在后台外观设置中登记到 `csp_static` / `csp_api`，否则会被浏览器拦截；纯静态部署（如 GitHub Pages）的主题页面不受面板 CSP 约束。
 
 ### 0.2 主题构建产物约定
 
@@ -92,14 +99,33 @@ my-theme/
     └── logo.webp
 ```
 
+`themes.json` 条目示例（`url` 指向主题仓库，`branch` 指向存放构建产物的分支）：
+
+```json
+{
+  "id": "my-theme",
+  "title": "My Theme",
+  "cover": "https://raw.githubusercontent.com/<owner>/<repo>/<branch>/docs/preview.png",
+  "tags": ["Minimal"],
+  "description": {
+    "zh-CN": "主题简介（中文）",
+    "en": "Theme description (English)"
+  },
+  "url": "https://github.com/<owner>/<repo>",
+  "branch": "main",
+  "author": "<作者名>"
+}
+```
+
 主题开发注意事项：
 
 - 主题提交目录只能生成 `index.html` 和 `assets/`；不要依赖其他主题目录或根目录文件
 - 静态资源应放在主题目录的 `assets/` 下，并在 HTML/JS/CSS 中使用 `/assets/...` 或相对 `assets/...`
 - 旗帜和 OS 图标走默认皮肤静态文件，不要打包进主题：旗帜使用 `/flags/<code>.svg`，OS 图标使用 `/os-icons/<filename>`
 - 站点标题、背景图、自定义 `<head>`、自定义脚本由用户后台外观设置控制，主题不要把这些配置写死
+- 在线判定阈值、访客历史范围等面板设置请通过 `/api/config` 动态读取（见 [0.4](#04-面板运行时设置主题适配要求)），不要写死具体数值
 - 主题不可用时应让页面暴露加载错误，不要在主题内静默跳转到其他页面
-- 主题底部需要展示 `Powered by ProbeDeck`，并链接到 [https://github.com/gg949/ProbeDeck/](https://github.com/gg949/ProbeDeck/)；建议同时输出 `/api/config` 返回的 `version`，例如 `Powered by ProbeDeck v2.8.6 Beta`
+- 主题底部需要展示 `Powered by ProbeDeck`，并链接到 [https://github.com/gg949/ProbeDeck/](https://github.com/gg949/ProbeDeck/)；建议同时输出 `/api/config` 返回的 `version`，例如 `Powered by ProbeDeck v2.12.4`
 
 路由约定：
 
@@ -112,11 +138,25 @@ my-theme/
 `GET /api/config` 会返回当前面板版本 `version`。当请求带有有效 JWT 时，后端还会查询远程最新版并额外返回：
 
 - `last_workers_version`：最新面板版本（字段名沿用上游兼容命名）
-- `last_agent_version`：最新探针 Agent 版本
+- `last_agent_version`：最新探针 Agent 版本（GitHub Release tag，形如 `v1.0.18`）
 
 第三方主题可以将 `version` 与 `last_workers_version` 做字符串比较，自行决定是否展示版本升级提示。`last_agent_version` 仅在登录后返回，可用于可选的 Agent 版本提示。
 
 未登录访问 `/api/config` 时不会返回 `last_workers_version` / `last_agent_version`，自定义主题不要依赖匿名请求展示升级提示。
+
+### 0.4 面板运行时设置（主题适配要求）
+
+面板的部分设置会直接影响主题前端行为。以下值全部通过 `GET /api/config` 获取，主题必须动态读取，不要写死：
+
+| 设置 | 说明 | 主题应如何使用 |
+| --- | --- | --- |
+| `online_threshold_seconds` | 在线判定阈值（秒），默认 `300` | 判定服务器在线状态：`Date.now() - last_updated < online_threshold_seconds * 1000`；不要写死 5 分钟 |
+| `public_history_hours` | 访客（未登录）可查询的历史范围上限（小时），默认 `24` | 访客的历史档位按它动态限制：超出该值的档位置灰 / 隐藏，或点击时提示登录；不要写死 24 小时 |
+| `frontend_ws_timeout_minutes` | 实时订阅单次连接时长（分钟），`0` 表示不按时间断开 | 达到对应分钟数后关闭连接，并由用户明确选择是否续订 |
+| `long_history_points` | 长历史查询返回的采样点数（`60` / `120` / `180` / `240`） | 历史图表按实际返回点数渲染 |
+| `latency_window` | `ping` / `loss` 窗口参数（`points` 点数、`hours` 回看小时数） | 展示三网延迟小图时作为窗口参考 |
+| `site_title`、`display_mode`、`preferred_theme`、`default_language`、`custom_*_name`、`node_*_name` | 站点标题、默认展示模式、主题与语言、自定义显示名 | 用于页面标题与指标命名，不要写死 |
+| `theme_options` | 主题自身的配置（配合 `POST /api/theme_options` 保存） | 作为主题自身设置的读写入口 |
 
 ***
 
@@ -128,8 +168,8 @@ my-theme/
 
 | 机制         | 使用位置            | 方式                                           |
 | ---------- | --------------- | -------------------------------------------- |
-| JWT Bearer | 非公开站点读取公开 API、查看 1 小时以上历史、保存第三方主题配置 | `Authorization: Bearer <token>`              |
-| WebSocket JWT | 非公开站点连接 `/api/ws` | `Authorization: Bearer <token>`、`Cookie: cfsm_auth=<token>` 或查询参数 `token` / `auth_token` / `ws_token` |
+| JWT Bearer | 非公开站点读取公开 API；访客查看超过 `public_history_hours` 的历史；保存第三方主题配置 | `Authorization: Bearer <jwt>`              |
+| WebSocket JWT | 非公开站点连接 `/api/ws` | `Authorization: Bearer <jwt>`、`cfsm_auth=<token>` 或查询参数 `token` / `auth_token` / `ws_token` |
 | Turnstile  | 公开 API（当启用时）    | `X-Turnstile-Token` 或 `X-Turnstile-Verified` |
 
 浏览器原生 WebSocket 不能自定义 `Authorization` Header。第三方主题在私有站点中连接 `/api/ws` 时，同域走登录后的 `cfsm_auth` Cookie，跨域走 WebSocket URL 查询参数 `token=<jwt>`。查询参数 token 可能出现在访问日志中，请只通过 HTTPS 使用。
@@ -179,19 +219,24 @@ Headers: (可选) Authorization: Bearer <jwt>, X-Turnstile-Token / X-Turnstile-V
 
 ```json
 {
-  "version": "2.7.12 Beta",
-  "last_workers_version": "2.7.13",
-  "last_agent_version": "1.3.3",
+  "version": "2.12.4",
+  "last_workers_version": "2.12.4",
+  "last_agent_version": "v1.0.18",
   "is_public": true,
   "authorization": true,
-  "turnstile_enabled": true,
-  "turnstile_login_enabled": true,
+  "turnstile_enabled": false,
+  "turnstile_login_enabled": false,
   "turnstile_site_key": "1x00000000000000000000AA",
   "custom_ct_name": "电信",
   "custom_cu_name": "联通",
   "custom_cm_name": "移动",
   "custom_bd_name": "BGP",
+  "node_1_name": "Node 1",
+  "node_2_name": "Node 2",
+  "node_3_name": "Node 3",
+  "node_4_name": "Node 4",
   "site_title": "My Server Monitor",
+  "display_mode": "ring",
   "preferred_theme": "auto",
   "default_language": "auto",
   "theme_options": {
@@ -200,8 +245,10 @@ Headers: (可选) Authorization: Bearer <jwt>, X-Turnstile-Token / X-Turnstile-V
   },
   "verified": false,
   "turnstile_verified": null,
-  "frontend_ws_timeout_minutes": 20,
+  "frontend_ws_timeout_minutes": 0,
   "long_history_points": 120,
+  "online_threshold_seconds": 300,
+  "public_history_hours": 24,
   "latency_window": { "points": 20, "hours": 2 }
 }
 ```
@@ -214,12 +261,14 @@ Headers: (可选) Authorization: Bearer <jwt>, X-Turnstile-Token / X-Turnstile-V
 | `last_workers_version` | string\|null | 最新面板版本，仅登录后返回 |
 | `last_agent_version` | string\|null | 最新 Agent 版本，仅登录后返回 |
 | `is_public`          | boolean      | 是否公开站点             |
-| `authorization`      | boolean      | 是否通过登录验证       |
+| `authorization`      | boolean      | 当前请求是否已通过登录验证       |
 | `turnstile_enabled`  | boolean      | 是否启用全局 API 人机验证 |
 | `turnstile_login_enabled` | boolean | 是否启用登录页人机验证 |
 | `turnstile_site_key` | string       | Turnstile 前端公钥  |
 | `custom_ct_name` / `custom_cu_name` / `custom_cm_name` / `custom_bd_name` | string | Ping 指标显示名称；分别用于 CT、CU、CM、BGP |
+| `node_1_name` / `node_2_name` / `node_3_name` / `node_4_name` | string | 自定义延迟节点显示名；未配置时分别为 `Node 1` ~ `Node 4` |
 | `site_title`         | string       | 站点标题 |
+| `display_mode`       | string       | 面板默认展示模式：`bar` 条形图 / `ring` 环形图 / `table` 列表 |
 | `preferred_theme`    | string       | 默认外观：`auto` 跟随系统 / `dark` 深色 / `light` 浅色 |
 | `default_language`   | string       | 默认语言：`auto` 按浏览器语言自动选择中文或英文 / `zh` 中文 / `en` 英文 |
 | `theme_options`      | object       | 第三方主题自定义配置；未配置时为空对象 |
@@ -227,6 +276,8 @@ Headers: (可选) Authorization: Bearer <jwt>, X-Turnstile-Token / X-Turnstile-V
 | `turnstile_verified` | string\|null | 已验证凭证，缓存复用 1 小时 |
 | `frontend_ws_timeout_minutes` | number | 前端实时订阅连接超时分钟数，范围 `0`-`1440`；默认 `0` 表示不超时 |
 | `long_history_points` | number      | 长历史查询返回的采样点数，可选 `60`、`120`、`180`、`240` |
+| `online_threshold_seconds` | number  | 在线判定阈值（秒），默认 `300`；主题据此判定在线状态（见 2.2） |
+| `public_history_hours` | number     | 访客（未登录）可查询的历史范围上限（小时），默认 `24`；主题据此限制访客历史档位（见 2.4） |
 | `latency_window` | object | `/api/servers` 的 `servers[].ping` / `servers[].loss` 窗口参数，`points` 为最多真实点数，`hours` 为回看小时数 |
 
 `theme_options` 是第三方主题的运行时配置。读取时使用 `/api/config`，保存主题自身配置时使用 `POST /api/theme_options`；不要在第三方主题内调用 `save_settings` 或其他管理端接口。
@@ -314,6 +365,24 @@ Headers: (按需) Authorization: Bearer <jwt>, X-Turnstile-Token/Verified
 ```json
 {
   "servers": [ /* Server[] */ ],
+  "latestReportUpdates": [
+    {
+      "serverId": "9b2c...",
+      "reportTs": 1737638405000,
+      "reportAgeMs": 1200,
+      "samples": [
+        {
+          "ts": 1737638400000,
+          "data": {
+            "cpu": 12.34,
+            "ram_used": 3700,
+            "net_in_speed": 1024,
+            "net_out_speed": 512
+          }
+        }
+      ]
+    }
+  ],
   "stats": {
     "total": 10,
     "online": 8,
@@ -328,7 +397,13 @@ Headers: (按需) Authorization: Bearer <jwt>, X-Turnstile-Token/Verified
     "show_price": true,
     "show_expire": true,
     "show_tf": true,
-    "show_three_net_details": true
+    "show_three_net_details": true,
+    "custom_ct_name": "电信",
+    "custom_cu_name": "联通",
+    "custom_cm_name": "移动",
+    "custom_bd_name": "BGP",
+    "display_mode": "ring",
+    "latency_window": { "points": 20, "hours": 2 }
   }
 }
 ```
@@ -338,9 +413,18 @@ Headers: (按需) Authorization: Bearer <jwt>, X-Turnstile-Token/Verified
 | 字段            | 说明                          |
 | ------------- | --------------------------- |
 | `servers`     | 服务器列表（含最新指标），未登录用户自动过滤隐藏服务器；`tags` 始终随服务器返回 |
-| `stats`       | 聚合统计（在线阈值 5 分钟）             |
+| `latestReportUpdates` | 最近一次上报的实时样本（回放用），按服务器聚合；为空数组表示当前无可用回放，形状与 2.3 一致 |
+| `stats`       | 聚合统计；在线 / 离线按面板「在线判定阈值」（`online_threshold_seconds`，默认 300 秒）在服务端统计 |
 | `regionStats` | 按区域统计服务器数量                  |
-| `sysConfig`   | 站点开关配置，控制 UI 显示；主题配置请从 `/api/config` 的 `theme_options` 读取 |
+| `sysConfig`   | 站点开关与显示配置；主题自身配置请从 `/api/config` 的 `theme_options` 读取 |
+
+**在线判定**：面板的在线判定阈值可在后台调整（`/api/config` 的 `online_threshold_seconds`，默认 `300` 秒）。主题在客户端判定单台服务器在线状态时，应读取该值，不要写死 5 分钟：
+
+```js
+const online = Date.now() - server.last_updated < config.online_threshold_seconds * 1000;
+```
+
+**访客字段剥离**：未登录访客请求时，服务端按站点开关剥离受限字段（不能只靠前端隐藏）——`show_price` 关闭时 `price` / `currency` / `billing_cycle` / `auto_renewal` 不返回；`show_expire` 关闭时 `expire_date` 不返回；`show_tf` 关闭时 `traffic_limit` 不返回。主题需要兼容这些字段缺失，不要假设字段一定存在。
 
 `servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd }`。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
 
@@ -444,6 +528,8 @@ Headers: (按需) Authorization, X-Turnstile-Token/Verified
 
 `tags` 为英文逗号分隔字符串。`note` 属于管理端内部字段，不从 dashboard 公共接口返回。`disk` 为可选磁盘 IO 指标对象：`read_bps` / `write_bps` 单位为 B/s，`read_iops` / `write_iops` 为 IOPS，`await_ms` 为毫秒，`util` 为百分比；旧探针、旧数据缺失，或者 6 个子字段全为 0 时，API / WebSocket 不返回该对象，主题不应展示依赖磁盘 IO 的图表。`latestReportUpdates` 与 `/api/servers` 同名字段形状一致，REST 样本统一为 `{ ts, data }` 并按探针批量采样包透传；内置探针默认只在普通采样点上报 `cpu`、`ram_total`、`ram_used`、`swap_total`、`swap_used`、`net_in_speed`、`net_out_speed`，每次报告最后一个样本可能额外携带 `disk` 等报告级字段；回放状态保留约 5 分钟，允许为空数组。`gpu` 已废弃，主题应使用 `gpu_info`；新版上报和 WebSocket 实时数据为 `[{ id, name, info }]` 数组，历史/详情 REST 响应中可能是同结构的 JSON 字符串。
 
+未登录访客请求详情接口时，同样受 2.2 的「访客字段剥离」影响。
+
 `ping` / `loss` 窗口数组仅在 `/api/servers` 的 `servers[]` 中返回，`/api/server` 详情接口不返回新增窗口数组。主题可从 `/api/config` 的 `latency_window` 读取当前窗口参数。只有后台开启三网详情时才会查询窗口数据；关闭时后端仍返回 `ping: []` / `loss: []`，主题不应展示三网小图。开启后，窗口从历史表最近 2 小时按时间范围抽样，最多 20 个真实样本点，点格式为 `{ ts, ct, cu, cm, bd }`，其中 `ct` / `cu` / `cm` / `bd` 分别对应不同探测线路。时间间隔目标约 6 分钟，但 `ts` 保留真实上报时间，不会强制对齐为等差序列；历史不足、上报中断或某个时间段无数据时不会用最近点补齐，数组可能少于 20 个。该抽样结果在服务端缓存约 5 分钟。
 
 **失败返回**：
@@ -466,13 +552,13 @@ const server = await res.json();
 
 ```
 GET /api/history/all?id=<uuid>&hours=<number>
-Headers: (按需) Authorization, X-Turnstile-Token/Verified
+Headers: (按需) Authorization: Bearer <jwt>, X-Turnstile-Token/Verified
 ```
 
 **参数**：
 
 - `id`（必填）：服务器 UUID
-- `hours`（可选，默认 24）：查询时长，可选 `0.167`、`0.5`、`1`、`6`、`12`、`24`、`48`、`96`、`168`，最大 168（7 天）
+- `hours`（可选，默认 `24`）：查询时长，可选 `0.167`（10 分钟）、`0.5`（30 分钟）、`1`、`6`、`12`、`24`、`48`、`96`、`168`（7 天）、`336`（14 天）、`720`（30 天）；**上限固定为 30 天（720 小时）**。不在列表内的值返回 `400 Invalid hours parameter`
 
 **Response**
 
@@ -519,7 +605,8 @@ Headers: (按需) Authorization, X-Turnstile-Token/Verified
 
 **注意**：
 
-- 未登录用户 `hours > 24` 时返回 `401`
+- **访客（未登录）**：可查询的最大跨度为 `/api/config` 的 `public_history_hours`（面板「访客历史范围」，默认 `24` 小时）。`hours` 超过该值返回 `401`。主题不要写死 24 小时，应读取 `public_history_hours` 动态限制访客可选档位：超出该值的档位置灰 / 隐藏，或点击时提示登录；收到 `401` 时也应回退到允许范围内并提示登录
+- **登录用户**：所有档位可用。服务端只返回实际保留范围内的数据，请求跨度超过保留范围时不会报错，只是更早的部分没有数据
 - 服务端按后台 `long_history_points` 配置返回采样点，默认 120 个点
 - 历史行有磁盘 IO 数据时会返回 `disk` 对象；为兼容历史存储，也可能同时包含 `disk_read_bps`、`disk_write_bps`、`disk_read_iops`、`disk_write_iops`、`disk_await_ms`、`disk_util` 平铺字段。主题只需要读取 `disk`；缺失时不应展示磁盘 IO 图表
 - 数据库字段缺失且需要升级时可能返回 `409 { "message": "databaseUpgradeRequired" }`
@@ -552,7 +639,7 @@ Headers: Upgrade: websocket, Connection: Upgrade
 **鉴权**：
 
 - 公开站点：无需 JWT。
-- 非公开站点：连接 `/api/ws` 必须通过 WebSocket JWT 认证，支持 `Authorization: Bearer <jwt>`、`Cookie: cfsm_auth=<jwt>`、查询参数 `token` / `auth_token` / `ws_token`。
+- 非公开站点：连接 `/api/ws` 必须通过 WebSocket JWT 认证，支持 `Authorization: Bearer <jwt>`、`cfsm_auth=<jwt>`、查询参数 `token` / `auth_token` / `ws_token`。
 - 浏览器主题通常不能设置 WebSocket `Authorization` Header；同域部署使用 `cfsm_auth` Cookie，跨域或纯静态主题在 WebSocket URL 上追加 `token=<jwt>`。
 
 **过滤机制**：
@@ -687,7 +774,7 @@ ws.onmessage = (ev) => {
 | code | 含义             | 处理建议                 |
 | ---- | -------------- | -------------------- |
 | 400  | 参数错误           | 检查参数格式和必填项           |
-| 401  | 未授权            | 重新登录或检查 JWT          |
+| 401  | 未授权            | 非公开站点未登录，或访客请求超过 `public_history_hours` 的历史；重新登录或检查 JWT |
 | 403  | Turnstile 验证失败 | 重新获取 Turnstile token |
 | 404  | 资源不存在          | 检查服务器 ID             |
 | 409  | 数据库需升级        | 提示管理员执行数据库升级      |
@@ -697,6 +784,7 @@ ws.onmessage = (ev) => {
 常见 `400` 错误字符串：
 
 - `invalidThemeOptionsFormat`：`theme_options` 不是非数组对象
+- `Invalid hours parameter`：`hours` 不在允许列表内（见 2.4）
 
 ***
 
@@ -786,7 +874,6 @@ interface Server {
   agent_version?: string;
   last_updated: number;
   timestamp: number;
-  is_online?: boolean;
   sysConfig?: SysConfig;
 }
 
@@ -805,7 +892,14 @@ interface SysConfig {
   show_price?: boolean;
   show_expire?: boolean;
   show_tf?: boolean;
+  show_three_net_details?: boolean;
+  custom_ct_name?: string;
+  custom_cu_name?: string;
+  custom_cm_name?: string;
+  custom_bd_name?: string;
+  display_mode?: string;
   long_history_points?: number;
+  latency_window?: { points: number; hours: number };
 }
 
 interface SiteConfig {
@@ -817,12 +911,49 @@ interface SiteConfig {
   turnstile_enabled: boolean;
   turnstile_login_enabled: boolean;
   turnstile_site_key: string;
+  custom_ct_name: string;
+  custom_cu_name: string;
+  custom_cm_name: string;
+  custom_bd_name: string;
+  node_1_name: string;
+  node_2_name: string;
+  node_3_name: string;
+  node_4_name: string;
   site_title: string;
+  display_mode: string;
+  preferred_theme: string;
+  default_language: string;
   theme_options: Record<string, unknown>;
   verified: boolean;
   turnstile_verified: string | null;
   frontend_ws_timeout_minutes: number;
   long_history_points: number;
+  online_threshold_seconds: number;
+  public_history_hours: number;
+  latency_window: { points: number; hours: number };
+}
+
+interface LatestReportUpdate {
+  serverId: string;
+  reportTs: number;
+  reportAgeMs?: number;
+  samples: Array<{ ts: number; data: Partial<Server> }>;
+}
+
+interface ServersResponse {
+  servers: Server[];
+  latestReportUpdates: LatestReportUpdate[];
+  stats: {
+    total: number;
+    online: number;
+    offline: number;
+    globalSpeedIn: number;
+    globalSpeedOut: number;
+    globalNetTx: number;
+    globalNetRx: number;
+  };
+  regionStats: Record<string, number>;
+  sysConfig: SysConfig;
 }
 
 interface ThemeOptionsSaveResponse {
@@ -851,4 +982,4 @@ interface WsMessage {
 }
 ```
 
-延时与丢包字段的展示约定：`false`（或 REST/历史字段缺失时归一化的 `false`）表示节点未配置/未上报/未取样，前端应不显示；`null` 表示该轮明确探测超时/未取到有效 RTT，详情页可显示为 “Timeout/超时”，不应把 `null` 当“无数据”从指标区和图表图例中隐藏。数值 `0`（包括 `0%` 丢包）是有效数据，必须正常显示。自定义节点显示名使用 `node_1_name` 至 `node_4_name`，未配置时使用 `Node 1` 至 `Node 4`。
+延时与丢包字段的展示约定：`false`（或 REST/历史字段缺失时归一化的 `false`）表示节点未配置/未上报/未取样，前端应不显示；`null` 表示该轮明确探测超时/未取到有效 RTT，详情页可显示为 “Timeout/超时”，不应把 `null` 当“无数据”从指标区和图表图例中隐藏。数值 `0`（包括 `0%` 丢包）是有效数据，必须正常显示。自定义节点显示名使用 `node_1_name` 至 `node_4_name`（从 `/api/config` 读取），未配置时使用 `Node 1` 至 `Node 4`。
