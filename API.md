@@ -1032,7 +1032,7 @@ ws.onmessage = (ev) => {
 从以下上游读取并规范化主题商店清单，服务端内存缓存 300 秒：
 
 ```text
-https://raw.githubusercontent.com/gg949/ProbeDeck/refs/heads/main/themes.json
+https://raw.githubusercontent.com/gg949/ProbeDeck-themes/refs/heads/main/themes.json
 ```
 
 **Response 200**

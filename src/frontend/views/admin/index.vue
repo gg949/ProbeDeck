@@ -1638,8 +1638,19 @@ const resolveServerPingNode = (server, field) => {
   }
 }
 
+const getDockerUninstallCommand = () => {
+  return [
+    'docker stop cf-probe && docker rm cf-probe',
+    '# optional: docker rmi ghcr.io/gg949/cfsm-agent:latest',
+    '# optional: rm -rf /opt/cf-probe'
+  ].join('\n')
+}
+
 const getUninstallCommand = () => {
   const HOST = selectedApiBase.value
+  if (deleteTargetOs.value === 'docker') {
+    return getDockerUninstallCommand()
+  }
   const isGo = deleteVersion.value === 'go'
   const proxy = isGo ? deleteGhProxy.value.trim() : ''
   if (isGo) {

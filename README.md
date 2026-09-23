@@ -206,6 +206,7 @@ docker run -d \
 - `/etc/cf-probe` **必须挂卷**（存放配置与流量计数），路径固定、内容持久化
 - 默认 bridge 网络下只统计容器自己的虚拟网卡，**要监控宿主机真实流量请加 `--network host`**
 - 容器内已禁用自动更新，升级方式 = 重新拉镜像重建容器
+- 卸载：管理面板「删除服务器」弹窗的目标系统选 **Docker / Unraid**，复制命令执行；或手动 `docker stop cf-probe && docker rm cf-probe`（可选再删镜像和 `/opt/cf-probe`）
 - Unraid 用户可给容器配图标：Docker 页 → 点容器 → **Icon URL** 填
   `https://raw.githubusercontent.com/gg949/cfsm-agent/main/docker/icon.png`
 
@@ -547,6 +548,16 @@ curl -fsSL 'http://你的面板地址/uninstall.sh' | sh -s
 - 支持 systemd / OpenRC / OpenWrt / 群晖 DSM / macOS；Windows 被控机使用 `uninstall.ps1`
 - 也可以在管理面板里「删除服务器」——弹窗会按你选择的系统/版本/代理生成对应卸载命令，复制执行一样有效
 
+**③ Docker / Unraid 部署的探针**：
+
+```bash
+docker stop cf-probe && docker rm cf-probe
+# 可选：docker rmi ghcr.io/gg949/cfsm-agent:latest
+# 可选：rm -rf /opt/cf-probe   # 配置和流量计数
+```
+
+面板「删除服务器」弹窗的目标系统选 **Docker / Unraid** 会生成同一条命令。
+
 ### 卸载主控端（部署 ProbeDeck 的服务器）
 
 **① 停止并删除容器**（按你的部署方式选一条）：
@@ -610,7 +621,7 @@ rm -rf /opt/probedeck
 - [主题开发文档](theme-develop.md)：第三方主题开发规范——数据接口、WebSocket 协议、构建产物约定、页脚要求与提交流程
 - [全局 API 文档](API.md)：完整 REST / WebSocket API 参考——鉴权、端点、数据结构、错误码
 
-> **主题生态**：ProbeDeck 与原版 CF-Server-Monitor 的主题**完全通用**。面板中可直接填写任意主题链接（不限数量），格式为 `https://github.com/<作者>/<仓库>/tree/<分支>`；也可以在「主题商店」里一键安装。即使主题链接失效，站点也会自动回落到内置界面，不受影响。
+> **主题生态**：ProbeDeck 与原版 CF-Server-Monitor 的主题**完全通用**。面板中可直接填写任意主题链接（不限数量），格式为 `https://github.com/<作者>/<仓库>/tree/<分支>`；也可以在「主题商店」里一键安装（商店列表来自 [gg949/ProbeDeck-themes](https://github.com/gg949/ProbeDeck-themes)，加新主题只改那个仓库，不用发面板版）。即使主题链接失效，站点也会自动回落到内置界面，不受影响。
 
 ## 支持项目
 

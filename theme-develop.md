@@ -23,6 +23,7 @@
   - [0.2 主题构建产物约定](#02-主题构建产物约定)
   - [0.3 版本升级提示](#03-版本升级提示)
   - [0.4 面板运行时设置（主题适配要求）](#04-面板运行时设置主题适配要求)
+  - [0.5 更新主题后如何生效](#05-更新主题后如何生效)
 - [1. 鉴权与 Turnstile 流程](#1-鉴权与-turnstile-流程)
 - **[2. 公开 API](#2-公开-api)**
   - **[2.1 获取站点配置](#21-获取站点配置)**
@@ -33,6 +34,7 @@
 - [3. WebSocket 实时推送](#3-websocket-实时推送)
 - [4. 错误处理](#4-错误处理)
 - [5. 类型定义](#5-类型定义)
+- [6. 常见问题](#6-常见问题)
 
 ***
 
@@ -81,7 +83,7 @@ npm run build:github-page
 
 ### 0.2 主题构建产物约定
 
-主题完成后提交到 [gg949/ProbeDeck](https://github.com/gg949/ProbeDeck) 仓库的 `themes.json`（提 PR 或 issue 均可）。
+主题完成后提交到 [gg949/ProbeDeck-themes](https://github.com/gg949/ProbeDeck-themes) 的 `themes.json`（提 PR 或 issue 均可）。新条目追加在现有主题后面，不要改已有条目的 `id` / 顺序 / `url`。内置 Mikus 不在此列表。
 
 主题构建产物仅需要：
 
@@ -154,9 +156,25 @@ my-theme/
 | `public_history_hours` | 访客（未登录）可查询的历史范围上限（小时），默认 `24` | 访客的历史档位按它动态限制：超出该值的档位置灰 / 隐藏，或点击时提示登录；不要写死 24 小时 |
 | `frontend_ws_timeout_minutes` | 实时订阅单次连接时长（分钟），`0` 表示不按时间断开 | 达到对应分钟数后关闭连接，并由用户明确选择是否续订 |
 | `long_history_points` | 长历史查询返回的采样点数（`60` / `120` / `180` / `240`） | 历史图表按实际返回点数渲染 |
-| `latency_window` | `ping` / `loss` 窗口参数（`points` 点数、`hours` 回看小时数） | 展示三网延迟小图时作为窗口参考 |
+| `latency_window` | `ping` / `loss` 窗口参数（`points` 点数、`hours` 回看小时数） | 展示延迟小图时作为窗口参考 |
 | `site_title`、`display_mode`、`preferred_theme`、`default_language`、`custom_*_name`、`node_*_name` | 站点标题、默认展示模式、主题与语言、自定义显示名 | 用于页面标题与指标命名，不要写死 |
+| Ping 线路 | 最多 **8 条**：`ct` / `cu` / `cm` / `bd` + `node_1` … `node_4` | 窗口点与当前值都带这 8 个字段；显示名走 `custom_*_name` / `node_*_name`；未配置的线路值为 `false` 或缺失，主题应不显示 |
 | `theme_options` | 主题自身的配置（配合 `POST /api/theme_options` 保存） | 作为主题自身设置的读写入口 |
+
+### 0.5 更新主题后如何生效
+
+面板会缓存主题资源。推了新版本却看不到变化时，优先查缓存，不要先怀疑自己写错。
+
+| 主题链接形态 | 面板内存缓存 | 浏览器 `Cache-Control` |
+| --- | --- | --- |
+| 分支引用（`/tree/main`、`/tree/build` 等） | 3600 秒（1 小时） | `public, max-age=3600` |
+| 固定 commit（`/tree/<40 位 sha>`） | 86400 秒（内容不可变） | `public, max-age=31536000, immutable`（换 commit 即换 URL，旧缓存不影响新版本） |
+
+正式发布建议用固定 commit 的 `https://github.com/<owner>/<repo>/tree/<commitid>` 链接。换 commit 后 URL 变了，面板立刻拉新文件。
+
+分支 URL 最多等 1 小时，或重启面板容器清内存缓存。浏览器请 `Ctrl+Shift+R` 硬刷新。
+
+面板前面如果挂了 Cloudflare：主题静态资源会被边缘缓存。commit 引用带 `immutable`，CF 可能一直吐旧文件。排查顺序：① `curl` GitHub raw 确认源文件已更新 ② `curl -sI <面板>/assets/<文件>` 看 `cf-cache-status` ③ Cloudflare 清除缓存 → 无痕窗口复测。
 
 ***
 
@@ -412,7 +430,7 @@ Headers: (按需) Authorization: Bearer <jwt>, X-Turnstile-Token/Verified
 
 | 字段            | 说明                          |
 | ------------- | --------------------------- |
-| `servers`     | 服务器列表（含最新指标），未登录用户自动过滤隐藏服务器；`tags` 始终随服务器返回 |
+| `servers`     | 服务器列表（含最新指标），未登录用户自动过滤隐藏服务器；`tags` 始终随服务器返回（英文逗号分隔；后台保存时按逗号切分，每个标签只保留字母/数字/空格/`._-`，单个 ≤32 字符、最多 12 个） |
 | `latestReportUpdates` | 最近一次上报的实时样本（回放用），按服务器聚合；为空数组表示当前无可用回放，形状与 2.3 一致 |
 | `stats`       | 聚合统计；在线 / 离线按面板「在线判定阈值」（`online_threshold_seconds`，默认 300 秒）在服务端统计 |
 | `regionStats` | 按区域统计服务器数量                  |
@@ -426,7 +444,7 @@ const online = Date.now() - server.last_updated < config.online_threshold_second
 
 **访客字段剥离**：未登录访客请求时，服务端按站点开关剥离受限字段（不能只靠前端隐藏）——`show_price` 关闭时 `price` / `currency` / `billing_cycle` / `auto_renewal` 不返回；`show_expire` 关闭时 `expire_date` 不返回；`show_tf` 关闭时 `traffic_limit` 不返回。主题需要兼容这些字段缺失，不要假设字段一定存在。
 
-`servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd }`。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
+`servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`（最多 8 条线路）。未配置的线路值为 `false` 或缺失，主题应不显示该条。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
 
 **示例**：
 
@@ -480,7 +498,9 @@ Headers: (按需) Authorization, X-Turnstile-Token/Verified
   "tcp_conn": 32,
   "udp_conn": 4,
   "ping_ct": 23, "ping_cu": 25, "ping_cm": 30, "ping_bd": 40,
+  "ping_node_1": 12, "ping_node_2": 18, "ping_node_3": false, "ping_node_4": false,
   "loss_ct": 0, "loss_cu": 0, "loss_cm": 0, "loss_bd": 0,
+  "loss_node_1": 0, "loss_node_2": 0, "loss_node_3": false, "loss_node_4": false,
   "ram_total": 8192, "ram_used": 3700,
   "swap_total": 2048, "swap_used": 100,
   "disk_total": 102400, "disk_used": 32000,
@@ -526,11 +546,11 @@ Headers: (按需) Authorization, X-Turnstile-Token/Verified
 }
 ```
 
-`tags` 为英文逗号分隔字符串。`note` 属于管理端内部字段，不从 dashboard 公共接口返回。`disk` 为可选磁盘 IO 指标对象：`read_bps` / `write_bps` 单位为 B/s，`read_iops` / `write_iops` 为 IOPS，`await_ms` 为毫秒，`util` 为百分比；旧探针、旧数据缺失，或者 6 个子字段全为 0 时，API / WebSocket 不返回该对象，主题不应展示依赖磁盘 IO 的图表。`latestReportUpdates` 与 `/api/servers` 同名字段形状一致，REST 样本统一为 `{ ts, data }` 并按探针批量采样包透传；内置探针默认只在普通采样点上报 `cpu`、`ram_total`、`ram_used`、`swap_total`、`swap_used`、`net_in_speed`、`net_out_speed`，每次报告最后一个样本可能额外携带 `disk` 等报告级字段；回放状态保留约 5 分钟，允许为空数组。`gpu` 已废弃，主题应使用 `gpu_info`；新版上报和 WebSocket 实时数据为 `[{ id, name, info }]` 数组，历史/详情 REST 响应中可能是同结构的 JSON 字符串。
+`tags` 为英文逗号分隔字符串。后台保存时按英文逗号切分 → 每个标签剔除字母/数字/空格/`._-` 以外的字符 → 单个 ≤32 字符 → 最多 12 个，再拼回逗号串。主题不要依赖颜色标记（如 `标签<red>`）或分号分隔——后端会清成纯文本。`note`、`bandwidth`、`auto_update`、`traffic_snapshots` 属于管理端内部字段，不从 dashboard 公共接口返回。`disk` 为可选磁盘 IO 指标对象：`read_bps` / `write_bps` 单位为 B/s，`read_iops` / `write_iops` 为 IOPS，`await_ms` 为毫秒，`util` 为百分比；旧探针、旧数据缺失，或者 6 个子字段全为 0 时，API / WebSocket 不返回该对象，主题不应展示依赖磁盘 IO 的图表。`latestReportUpdates` 与 `/api/servers` 同名字段形状一致，REST 样本统一为 `{ ts, data }` 并按探针批量采样包透传；内置探针默认只在普通采样点上报 `cpu`、`ram_total`、`ram_used`、`swap_total`、`swap_used`、`net_in_speed`、`net_out_speed`，每次报告最后一个样本可能额外携带 `disk` 等报告级字段；回放状态保留约 5 分钟，允许为空数组。`gpu` 已废弃，主题应使用 `gpu_info`；新版上报和 WebSocket 实时数据为 `[{ id, name, info }]` 数组，历史/详情 REST 响应中可能是同结构的 JSON 字符串。
 
 未登录访客请求详情接口时，同样受 2.2 的「访客字段剥离」影响。
 
-`ping` / `loss` 窗口数组仅在 `/api/servers` 的 `servers[]` 中返回，`/api/server` 详情接口不返回新增窗口数组。主题可从 `/api/config` 的 `latency_window` 读取当前窗口参数。只有后台开启三网详情时才会查询窗口数据；关闭时后端仍返回 `ping: []` / `loss: []`，主题不应展示三网小图。开启后，窗口从历史表最近 2 小时按时间范围抽样，最多 20 个真实样本点，点格式为 `{ ts, ct, cu, cm, bd }`，其中 `ct` / `cu` / `cm` / `bd` 分别对应不同探测线路。时间间隔目标约 6 分钟，但 `ts` 保留真实上报时间，不会强制对齐为等差序列；历史不足、上报中断或某个时间段无数据时不会用最近点补齐，数组可能少于 20 个。该抽样结果在服务端缓存约 5 分钟。
+`ping` / `loss` 窗口数组仅在 `/api/servers` 的 `servers[]` 中返回，`/api/server` 详情接口不返回新增窗口数组。主题可从 `/api/config` 的 `latency_window` 读取当前窗口参数。只有后台开启三网详情时才会查询窗口数据；关闭时后端仍返回 `ping: []` / `loss: []`，主题不应展示三网小图。开启后，窗口从历史表最近 2 小时按时间范围抽样，最多 20 个真实样本点，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`，对应 4 条运营商线路 + 4 条自定义线路。显示名从 `/api/config` 的 `custom_*_name` / `node_*_name` 读取。时间间隔目标约 6 分钟，但 `ts` 保留真实上报时间，不会强制对齐为等差序列；历史不足、上报中断或某个时间段无数据时不会用最近点补齐，数组可能少于 20 个。该抽样结果在服务端缓存约 5 分钟。
 
 **失败返回**：
 
@@ -679,6 +699,8 @@ Headers: Upgrade: websocket, Connection: Upgrade
 
 主题还应读取 `/api/config` 的 `frontend_ws_timeout_minutes`。值为 `0` 时不按连接时长断开；值为正整数时，应在单次连接达到对应分钟数后主动关闭，并由用户明确选择是否继续连接。继续后应建立新连接并重新开始计时，不应在用户选择关闭后静默重连。
 
+**心跳建议**：主题应每隔 30–60 秒发送 `{ type: "ping", ts: Date.now() }`。服务端会自动回复 `{ type: "pong" }`（不唤醒业务逻辑）。长时间无消息时，中间反代（nginx / Cloudflare）可能掐断空闲连接。
+
 **推送策略**：
 
 | 订阅类型 | 推送方式 | 消息类型 | 说明 |
@@ -806,13 +828,17 @@ interface LatencyWindowPoint {
   cu?: number | null | false;
   cm?: number | null | false;
   bd?: number | null | false;
+  node_1?: number | null | false;
+  node_2?: number | null | false;
+  node_3?: number | null | false;
+  node_4?: number | null | false;
 }
 
 interface Server {
   id: string;
   name: string;
   server_group: string;
-  tags: string;
+  tags: string; // 英文逗号分隔；后台清洗后纯文本，单个 ≤32 字符、最多 12 个
   price: string; // "0" 或 "-1" 表示免费，空白表示未设置
   billing_cycle: string;
   auto_renewal: string;
@@ -983,3 +1009,24 @@ interface WsMessage {
 ```
 
 延时与丢包字段的展示约定：`false`（或 REST/历史字段缺失时归一化的 `false`）表示节点未配置/未上报/未取样，前端应不显示；`null` 表示该轮明确探测超时/未取到有效 RTT，详情页可显示为 “Timeout/超时”，不应把 `null` 当“无数据”从指标区和图表图例中隐藏。数值 `0`（包括 `0%` 丢包）是有效数据，必须正常显示。自定义节点显示名使用 `node_1_name` 至 `node_4_name`（从 `/api/config` 读取），未配置时使用 `Node 1` 至 `Node 4`。
+
+***
+
+## 6. 常见问题
+
+**页面白屏 / 资源 404**
+
+面板只服务当前启用主题的 `index.html` 和 `/assets/*`。资源必须放在 `assets/` 下，路径用 `/assets/...` 或相对 `assets/...`。主题链接要指向**构建产物分支**（如 `tree/build`、`tree/dist`），指到源码分支会拿到 Vite 开发模板。
+
+**改了主题为什么不生效**
+
+见 [0.5](#05-更新主题后如何生效)。先确认 GitHub raw 已是新文件，再查面板缓存 / Cloudflare 边缘缓存 / 浏览器硬刷新。
+
+**访客看不到长历史**
+
+未登录用户受 `/api/config` 的 `public_history_hours` 限制，超出返回 401。档位置灰 / 隐藏，或提示登录；不要写死 24 小时。
+
+**详情页不要拉全量列表**
+
+详情页用 `GET /api/server?id=<id>` + `wss://…/api/ws?subscribe=<id>`。不要先拉 `/api/servers` 再前端过滤。
+

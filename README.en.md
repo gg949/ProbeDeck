@@ -211,6 +211,7 @@ The image supports amd64 / arm64. Key points:
 - Mount `/etc/cf-probe` as a **volume** (config + traffic counters); the path is fixed and persists
 - Default bridge networking only sees the container's own vNIC — **add `--network host` to monitor the host's real traffic**
 - Auto-update is disabled inside the container; upgrade = re-pull the image and recreate
+- Uninstall: in the panel "Delete server" dialog pick **Docker / Unraid**, or run `docker stop cf-probe && docker rm cf-probe` (optionally also remove the image and `/opt/cf-probe`)
 - Unraid users can set a container icon: Docker tab → click the container → **Icon URL** →
   `https://raw.githubusercontent.com/gg949/cfsm-agent/main/docker/icon.png`
 
@@ -557,6 +558,16 @@ curl -fsSL 'http://YOUR_PANEL_ADDRESS/uninstall.sh' | sh -s
 - Works on systemd / OpenRC / OpenWrt / Synology DSM / macOS; for Windows targets use `uninstall.ps1`
 - Alternatively use "Delete server" in the panel — the dialog generates the matching command for your OS/version/proxy
 
+**③ Docker / Unraid probe**:
+
+```bash
+docker stop cf-probe && docker rm cf-probe
+# optional: docker rmi ghcr.io/gg949/cfsm-agent:latest
+# optional: rm -rf /opt/cf-probe   # config + traffic counters
+```
+
+The panel "Delete server" dialog generates the same command when Target System is **Docker / Unraid**.
+
 ### Panel (the machine running ProbeDeck)
 
 **① Stop and remove the container** (pick one):
@@ -619,7 +630,7 @@ restart the container with network access to auto-download it, or manually place
 
 > **Theme ecosystem**: ProbeDeck and the original CF-Server-Monitor themes are **fully interchangeable**.
 > You can paste any theme link in the panel (no count limit), format `https://github.com/<author>/<repo>/tree/<branch>`;
-> or install one-click from the Theme Store. Even if a theme link breaks, the site falls back to the built-in UI automatically.
+> or install one-click from the Theme Store (catalog lives in [gg949/ProbeDeck-themes](https://github.com/gg949/ProbeDeck-themes) — adding a theme only updates that repo, no panel release needed). Even if a theme link breaks, the site falls back to the built-in UI automatically.
 
 ## Support the Project
 

@@ -1,5 +1,5 @@
 // 当前 Worker 版本：/api/config 返回给前端与主题，用于页脚和升级提示。
-export const CURRENT_VERSION = '2.12.4';
+export const CURRENT_VERSION = '2.12.5';
 
 // 站点设置默认值与缓存策略。
 export const DEFAULT_SITE_TITLE = 'ProbeDeck';
@@ -39,7 +39,7 @@ export const RESOURCE_ALERT_EVALUATE_SERVER_BATCH_SIZE = 500;
 export const RESOURCE_ALERT_NOTIFICATION_SOFT_LIMIT = 3200;
 
 // 主题商店与远程主题资源缓存。
-export const THEME_STORE_URL = 'https://raw.githubusercontent.com/gg949/ProbeDeck/refs/heads/main/themes.json';
+export const THEME_STORE_URL = 'https://raw.githubusercontent.com/gg949/ProbeDeck-themes/refs/heads/main/themes.json';
 export const THEME_STORE_CACHE_TTL_SECONDS = 300;
 export const THEME_ASSET_CACHE_TTL_SECONDS = 3600;
 export const THEME_COMMIT_CACHE_TTL_SECONDS = 86400;

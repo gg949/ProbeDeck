@@ -27,10 +27,11 @@
             <option value="unix">OpenWrt/Alpine/Synology DSM/FreeBSD</option>
             <option value="mac">macOS</option>
             <option value="windows">Windows</option>
+            <option value="docker">Docker / Unraid</option>
           </select>
         </div>
 
-        <div class="form-group flex-1 mb-3">
+        <div v-if="deleteTargetOs !== 'docker'" class="form-group flex-1 mb-3">
           <label class="form-label">{{ trans.agentVersionSelect }}</label>
           <select :value="deleteVersion" class="form-select" @change="$emit('update:delete-version', $event.target.value)">
             <option value="go">{{ trans.agentVersionGo }}</option>
@@ -39,7 +40,7 @@
         </div>
       </div>
 
-      <div v-if="deleteVersion === 'go'" class="form-row">
+      <div v-if="deleteVersion === 'go' && deleteTargetOs !== 'docker'" class="form-row">
         <div v-if="deleteTargetOs === 'linux' && deleteVersion === 'go'" class="form-group flex-1 mb-3">
           <label class="form-label">
             {{ trans.uninstallMode }}
@@ -70,10 +71,17 @@
         </div>
       </div>
 
+      <div v-if="deleteTargetOs === 'docker'" class="form-group mb-3">
+        <label class="form-label">{{ trans.dockerTip || 'Docker' }}</label>
+        <div class="docker-tip-block">
+          <pre class="cmd-output docker-tip">{{ trans.dockerUninstallTip }}</pre>
+        </div>
+      </div>
+
       <div class="cmd-input-wrapper mb-3" :class="{ copied: uninstallCopied }">
         <span class="cmd-prompt">{{ deleteTargetOs === 'windows' ? 'PS' : '$' }}</span>
         <textarea
-          v-if="deleteTargetOs === 'linux' && deleteVersion === 'go' && deleteInstallMode === 'cfsm-user'"
+          v-if="(deleteTargetOs === 'linux' && deleteVersion === 'go' && deleteInstallMode === 'cfsm-user') || deleteTargetOs === 'docker'"
           readonly
           :value="uninstallCommand"
           class="cmd-input flex-1"
