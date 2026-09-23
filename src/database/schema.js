@@ -1,6 +1,7 @@
 import { getAllServers, getLatestMetricsCache, setLatestMetricsCache, getMetricsHistoryCache, setMetricsHistoryCache, getCacheDuration, clearAllCaches } from '../utils/cache.js';
 import { saveSiteOptions, debug, getSettingByKey, normalizeLongHistoryPoints, DEFAULT_LONG_HISTORY_POINTS } from '../utils/settings.js';
 import { attachDiskMetricsObject, flattenDiskMetrics, isDisabledProbeMetric, normalizeProbeMetricRow } from '../utils/metrics.js';
+import { serializeExtraPingLoss, mergeExtraPingLoss, LATENCY_NODE_IDS, EXTRA_PROBE_SLOTS } from '../utils/probes.js';
 import { ensureServerOptimization, buildHistoryId, getServerHistoryInfo, getHistoryIdRange } from './indexOptimization.js';
 import { addHistoryColumns, ensureHistoryIndex, isHistoryOptimized } from './updateDatabase.js';
 import {
@@ -23,9 +24,10 @@ let dbInitialized = false;
 
 const LOSS_AGG_COLUMNS = new Set(['loss_ct', 'loss_cu', 'loss_cm', 'loss_bd', 'loss_node_1', 'loss_node_2', 'loss_node_3', 'loss_node_4']);
 const DEFAULT_HISTORY_MAX_POINTS = 160;
-const LATENCY_NODE_FIELDS = ['ct', 'cu', 'cm', 'bd', 'node_1', 'node_2', 'node_3', 'node_4'];
-const DASHBOARD_LATENCY_COLUMNS = LATENCY_NODE_FIELDS
+const LATENCY_NODE_FIELDS = LATENCY_NODE_IDS;
+const DASHBOARD_EIGHT_LATENCY_COLUMNS = ['ct', 'cu', 'cm', 'bd', 'node_1', 'node_2', 'node_3', 'node_4']
   .flatMap(field => [`ping_${field}`, `loss_${field}`]);
+const DASHBOARD_LATENCY_COLUMNS = [...DASHBOARD_EIGHT_LATENCY_COLUMNS, 'extra_probes'];
 const LEGACY_DASHBOARD_LATENCY_COLUMNS = ['ct', 'cu', 'cm', 'bd']
   .flatMap(field => [`ping_${field}`, `loss_${field}`]);
 const dashboardLatencyHistoryCache = new Map();
@@ -105,6 +107,8 @@ export async function initDatabase(db) {
           node_2 TEXT DEFAULT '',
           node_3 TEXT DEFAULT '',
           node_4 TEXT DEFAULT '',
+          extra_probe_hosts TEXT DEFAULT '',
+          extra_probe_names TEXT DEFAULT '',
           rx_correction REAL DEFAULT NULL,
           tx_correction REAL DEFAULT NULL,
           offline_notify_disabled TEXT DEFAULT '0',
@@ -384,10 +388,10 @@ export async function getMetricsHistory(
     `).bind(...bindValues).all();
   }
 
-  const result = rawResult.results.map(row => attachDiskMetricsObject(normalizeProbeMetricRow({
+  const result = rawResult.results.map(row => attachDiskMetricsObject(normalizeProbeMetricRow(mergeExtraPingLoss({
     ...row,
     timestamp: Number(row.timestamp)
-  })));
+  }))));
 
   result.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -432,6 +436,7 @@ function normalizeDashboardLatencyRows(rows, options = {}) {
   const loss = [];
 
   for (const row of rows || []) {
+    mergeExtraPingLoss(row);
     const pingPoint = buildLatencyHistoryPoint(row, 'ping', options);
     if (pingPoint) ping.push(pingPoint);
 
@@ -557,9 +562,14 @@ export async function getDashboardLatencyHistory(db, servers, options = {}) {
       try {
         rawResult = await querySparseHistory(columns);
       } catch (error) {
-        // Existing deployments may serve history before the new probe columns are migrated.
+        // Existing deployments may serve history before extra_probes / node_1..4 columns are migrated.
         if (!/no such column/i.test(String(error?.message || error))) throw error;
-        rawResult = await querySparseHistory(LEGACY_DASHBOARD_LATENCY_COLUMNS.join(', '));
+        try {
+          rawResult = await querySparseHistory(DASHBOARD_EIGHT_LATENCY_COLUMNS.join(', '));
+        } catch (legacyError) {
+          if (!/no such column/i.test(String(legacyError?.message || legacyError))) throw legacyError;
+          rawResult = await querySparseHistory(LEGACY_DASHBOARD_LATENCY_COLUMNS.join(', '));
+        }
       }
       const window = normalizeDashboardLatencyWindow(rawResult.results, { queryStart, intervalMs, points });
       result.set(serverId, window);
@@ -822,6 +832,16 @@ export async function saveMetricsHistory(db, serverId, historyPartitionId, metri
     parseLoss(metrics.loss_node_2),
     parseLoss(metrics.loss_node_3),
     parseLoss(metrics.loss_node_4),
+    serializeExtraPingLoss(Object.fromEntries(EXTRA_PROBE_SLOTS.flatMap(slot => {
+      const entries = [];
+      if (Object.prototype.hasOwnProperty.call(metrics, slot.pingField)) {
+        entries.push([slot.pingField, parsePing(metrics[slot.pingField])]);
+      }
+      if (Object.prototype.hasOwnProperty.call(metrics, slot.lossField)) {
+        entries.push([slot.lossField, parseLoss(metrics[slot.lossField])]);
+      }
+      return entries;
+    }))),
     parseFloat(metrics.ram_total) || 0,
     parseFloat(metrics.ram_used) || 0,
     parseFloat(metrics.swap_total) || 0,
@@ -892,7 +912,7 @@ export async function getLatestMetrics(db, serverId, server = null) {
       ORDER BY timestamp DESC
       LIMIT 1
     `).bind(serverId).first();
-    return result ? normalizeProbeMetricRow(result) : null;
+    return result ? normalizeProbeMetricRow(mergeExtraPingLoss({ ...result }, result.extra_probes)) : null;
   } catch (e) {
     console.error('获取最新指标数据失败:', e);
     return null;

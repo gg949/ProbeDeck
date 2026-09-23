@@ -2,6 +2,7 @@ import {
   NUMERIC_METRIC_FIELDS,
   PROBE_METRIC_FIELDS
 } from './historyFields.js';
+import { EXTRA_PING_FIELDS, EXTRA_LOSS_FIELDS } from './probes.js';
 
 export const DISK_IO_METRIC_FIELDS = [
   'read_bps',
@@ -156,7 +157,7 @@ export function normalizeProbeMetricRow(metrics) {
   if (!metrics) return metrics;
 
   const normalized = { ...metrics };
-  for (const field of PROBE_METRIC_FIELDS) {
+  for (const field of [...PROBE_METRIC_FIELDS, ...EXTRA_PING_FIELDS, ...EXTRA_LOSS_FIELDS]) {
     if (Object.prototype.hasOwnProperty.call(normalized, field)) {
       normalized[field] = normalizeProbeMetric(normalized[field]);
     }
@@ -194,6 +195,11 @@ export function mergeMetricsIntoServer(server, metrics) {
   server.loss_node_2 = normalizeProbeMetric(metrics.loss_node_2);
   server.loss_node_3 = normalizeProbeMetric(metrics.loss_node_3);
   server.loss_node_4 = normalizeProbeMetric(metrics.loss_node_4);
+  for (const field of [...EXTRA_PING_FIELDS, ...EXTRA_LOSS_FIELDS]) {
+    if (Object.prototype.hasOwnProperty.call(metrics, field)) {
+      server[field] = normalizeProbeMetric(metrics[field]);
+    }
+  }
   server.ram_total = metrics.ram_total || 0;
   server.ram_used = metrics.ram_used || 0;
   server.swap_total = metrics.swap_total || 0;

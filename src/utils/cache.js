@@ -8,6 +8,7 @@
  * - 站点设置缓存
  */
 
+import { flattenServerProbeFields } from './probes.js';
 import { clearAppearanceSettingsCache, clearSiteSettingsCache, debug } from './settings.js';
 
 const SERVERS_LIST_TTL = 120 * 1000;
@@ -55,9 +56,10 @@ export async function getAllServers(db, includeHidden = true) {
 
   try {
     const { results } = await db.prepare('SELECT * FROM servers ORDER BY sort_order ASC').all();
-    serversListCache = { data: results, time: now };
+    const data = (results || []).map(flattenServerProbeFields);
+    serversListCache = { data, time: now };
     debug('服务器列表缓存更新');
-    return filterServersByHidden(results, includeHidden);
+    return filterServersByHidden(data, includeHidden);
   } catch (e) {
     debug('获取服务器列表失败:', e);
     return filterServersByHidden(serversListCache?.data, includeHidden);
@@ -96,7 +98,8 @@ export async function getServerDetail(db, id, includeHidden = false) {
     serverDetailCache.delete(id);
   }
   
-  const server = await db.prepare('SELECT * FROM servers WHERE id = ?').bind(id).first();
+  const row = await db.prepare('SELECT * FROM servers WHERE id = ?').bind(id).first();
+  const server = row ? flattenServerProbeFields(row) : null;
 
   serverDetailCache.set(id, { data: server, time: now });
   debug('服务器详情缓存更新');

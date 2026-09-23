@@ -1,7 +1,7 @@
 import { md5Hash } from './common.js';
 import { isWssReportConfigured } from './settings.js';
 
-export const AGENT_CONFIG_SCHEMA_VERSION = 8;
+export const AGENT_CONFIG_SCHEMA_VERSION = 9;
 export const AGENT_CONFIG_LEGACY_SCHEMA_VERSION = 3;
 export const AGENT_CONFIG_CONNECTION_MODE_SCHEMA_VERSION = 4;
 export const AGENT_CONFIG_WSS_REPORT_INTERVAL_SCHEMA_VERSION = 5;
@@ -11,6 +11,7 @@ export const AGENT_CONFIG_EXTRA_NODES_SCHEMA_VERSION = 7;
 // 的远程配置校验只接受 30/60/120/180——碰到扩展值会整包拒绝（invalid report_interval），
 // 连同一包里的节点等配置全部无法下发，故对旧探针把 report_interval 收敛（见 buildAgentConfig）。
 export const AGENT_CONFIG_EXTENDED_INTERVALS_SCHEMA_VERSION = 8;
+export const AGENT_CONFIG_EXTENDED_PROBES_SCHEMA_VERSION = 9;
 export const AGENT_CONFIG_SCHEMA_HEADER = 'X-Agent-Config-Schema';
 export const AGENT_CONFIG_MD5_HEADER = 'X-Agent-Config-Md5';
 export const MAX_TRAFFIC_CORRECTION_GB = 1000000;
@@ -306,6 +307,10 @@ export function buildAgentConfig(server, settings = null, schemaVersion = AGENT_
   const customCu = resolveNode('custom_cu');
   const customCm = resolveNode('custom_cm');
   const customBd = resolveNode('custom_bd');
+  const extraHosts = {};
+  for (let n = 5; n <= 20; n += 1) {
+    extraHosts[`node_${n}`] = resolveNode(`node_${n}`);
+  }
   const node1 = resolveNode('node_1');
   const node2 = resolveNode('node_2');
   const node3 = resolveNode('node_3');
@@ -329,6 +334,9 @@ export function buildAgentConfig(server, settings = null, schemaVersion = AGENT_
     config.node_2 = node2;
     config.node_3 = node3;
     config.node_4 = node4;
+  }
+  if (version >= AGENT_CONFIG_EXTENDED_PROBES_SCHEMA_VERSION) {
+    Object.assign(config, extraHosts);
   }
 
   if (version >= AGENT_CONFIG_CONNECTION_MODE_SCHEMA_VERSION) {
@@ -369,6 +377,11 @@ export function serializeAgentConfig(config) {
       `&node_2=${config.node_2}` +
       `&node_3=${config.node_3}` +
       `&node_4=${config.node_4}`;
+  }
+  if (Object.prototype.hasOwnProperty.call(config, 'node_5')) {
+    for (let n = 5; n <= 20; n += 1) {
+      serialized += `&node_${n}=${config[`node_${n}`] || ''}`;
+    }
   }
   if (Object.prototype.hasOwnProperty.call(config, 'connection_mode')) {
     serialized += `&connection_mode=${config.connection_mode}`;

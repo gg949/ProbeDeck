@@ -58,7 +58,10 @@ function makeSettingsDb(settingsSource) {
 }
 
 function makeDescriptor(md5 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', schemaVersion = 7) {
-  const serialized = schemaVersion >= 7
+  const extraNodes = Array.from({ length: 16 }, (_, i) => `&node_${i + 5}=`).join('');
+  const serialized = schemaVersion >= 9
+    ? `collect_interval=2&report_interval=60&reset_day=1&schema_version=${schemaVersion}&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&node_1=&node_2=&node_3=&node_4=${extraNodes}&connection_mode=auto&wss_report_interval=2&ping_mode=tcp`
+    : schemaVersion >= 7
     ? `collect_interval=2&report_interval=60&reset_day=1&schema_version=${schemaVersion}&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&node_1=&node_2=&node_3=&node_4=&connection_mode=auto&wss_report_interval=2&ping_mode=tcp`
     : schemaVersion >= 6
     ? `collect_interval=2&report_interval=60&reset_day=1&schema_version=${schemaVersion}&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&connection_mode=auto&wss_report_interval=2&ping_mode=tcp`
@@ -92,6 +95,9 @@ function makeDescriptor(md5 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', schemaVersion 
     config.node_2 = '';
     config.node_3 = '';
     config.node_4 = '';
+  }
+  if (schemaVersion >= 9) {
+    for (let n = 5; n <= 20; n += 1) config[`node_${n}`] = '';
   }
   return {
     serialized,
@@ -531,7 +537,7 @@ test('WSS agent config push uses string body and structured payload', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(sent[0], 'config'), false);
 });
 
-test('WSS current-schema (8) agent config push uses single descriptor', () => {
+test('WSS current-schema (9) agent config push uses single descriptor', () => {
   const sent = [];
   const ws = {
     deserializeAttachment() {
@@ -539,7 +545,7 @@ test('WSS current-schema (8) agent config push uses single descriptor', () => {
         kind: 'agent-report',
         authenticated: true,
         serverId: 'server-1',
-        configSchema: '8',
+        configSchema: '9',
         configMd5: 'none'
       };
     },
@@ -548,14 +554,14 @@ test('WSS current-schema (8) agent config push uses single descriptor', () => {
     }
   };
   const broadcaster = makeBroadcaster([ws]);
-  const descriptor = makeDescriptor('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 8);
+  const descriptor = makeDescriptor('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 9);
 
   const result = broadcaster._pushAgentConfigFrame('server-1', descriptor);
 
   assert.deepEqual(result, { matched: 1, delivered: 1 });
   assert.equal(sent.length, 1);
   assert.equal(sent[0].type, 'config');
-  assert.equal(sent[0].config_schema, 8);
+  assert.equal(sent[0].config_schema, 9);
   assert.equal(sent[0].body, descriptor.serialized);
 });
 

@@ -86,7 +86,7 @@ jobs:
             # latest 只在手动 Run workflow 且填了 version 时更新（语义 = 当前正式版）。
             # 不再随 main 推送自动覆盖——避免「文档更新/中间提交」把 latest 冲掉，
             # 也避免 :latest 部署的用户拉到未经发版的代码。
-            type=raw,value=latest,enable=${{ inputs.version != '' }}
+            type=raw,value=latest,enable=${{ inputs.version != '' && !contains(inputs.version, 'beta') && !contains(inputs.version, 'rc') }}
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             # main 推送只打 sha 标签做存档追溯，不产生面向部署的标签
             type=sha,enable=${{ github.ref_type == 'branch' }}

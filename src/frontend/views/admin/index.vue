@@ -420,7 +420,8 @@ import CopyCommandModal from './components/CopyCommandModal.vue'
 import { adminApi, login, logout as apiLogout, upgradeDatabase, clearHistory, getApiBases, fetchConfig } from '../../utils/api'
 import { hasMultipleApiBases } from '../../utils/config.js'
 import { t, useTranslation } from '../../utils/i18n'
-import { PING_NODE_FIELDS, validatePingNode } from '../../utils/pingNode.js'
+import { validatePingNode } from '../../utils/pingNode.js'
+import { ALL_PROBE_HOST_FIELDS, ALL_PROBE_NAME_FIELDS, ALL_PROBE_SLOTS } from '../../utils/probes.js'
 import { normalizeDisplayMode, resolveDisplayMode } from '../../utils/displayMode.js'
 import { applyMikusThemeOptions } from '../../utils/themeOptions.js'
 import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY, ONLINE_THRESHOLD_SECOND_OPTIONS, PUBLIC_HISTORY_HOUR_OPTIONS } from '../../utils/constants.js'
@@ -1051,22 +1052,23 @@ watch(isWssReportEnabled, (enabled) => {
   }
 })
 
-const getPingNodeLabel = (field) => ({
-  custom_ct: settings.value.custom_ct_name || trans.value.customCt,
-  custom_cu: settings.value.custom_cu_name || trans.value.customCu,
-  custom_cm: settings.value.custom_cm_name || trans.value.customCm,
-  custom_bd: settings.value.custom_bd_name || trans.value.customBd
-  ,node_1: settings.value.node_1_name || 'Node 1', node_2: settings.value.node_2_name || 'Node 2', node_3: settings.value.node_3_name || 'Node 3', node_4: settings.value.node_4_name || 'Node 4'
-})[field] || field
+const getPingNodeLabel = (field) => {
+  const slot = ALL_PROBE_SLOTS.find(item => item.hostField === field || item.nameField === field)
+  if (!slot) return field
+  return settings.value[slot.nameField] || slot.defaultName
+}
 
 const getPingNodeValidation = (source) => {
   const values = {}
-  for (const field of PING_NODE_FIELDS) {
+  for (const field of ALL_PROBE_HOST_FIELDS) {
     const result = validatePingNode(source[field])
     if (!result.valid) {
       return { valid: false, field }
     }
     values[field] = result.value
+  }
+  for (const field of ALL_PROBE_NAME_FIELDS) {
+    values[field] = source[field] || ''
   }
   return { valid: true, values }
 }
@@ -1921,11 +1923,8 @@ const createEditFormFromServer = (server) => ({
     wss_report_interval: server.wss_report_interval || 2,
     connection_mode: getEffectiveConnectionMode(server.connection_mode),
     ping_mode: server.ping_mode === 'icmp' ? 'icmp' : 'tcp',
-    custom_ct: server.custom_ct ?? '',
-    custom_cu: server.custom_cu ?? '',
-    custom_cm: server.custom_cm ?? '',
-    custom_bd: server.custom_bd ?? '',
-    node_1: server.node_1 ?? '', node_2: server.node_2 ?? '', node_3: server.node_3 ?? '', node_4: server.node_4 ?? '',
+    ...Object.fromEntries(ALL_PROBE_HOST_FIELDS.map(field => [field, server[field] ?? ''])),
+    ...Object.fromEntries(ALL_PROBE_NAME_FIELDS.map(field => [field, server[field] ?? ''])),
     rx_correction: server.rx_correction ?? '',
     tx_correction: server.tx_correction ?? '',
     auto_update: server.auto_update === '1' || server.auto_update === 1 || server.auto_update === true,
@@ -2072,11 +2071,7 @@ const saveEdit = async () => {
     wss_report_interval: editForm.value.wss_report_interval,
     connection_mode: getEffectiveConnectionMode(editForm.value.connection_mode),
     ping_mode: editForm.value.ping_mode === 'icmp' ? 'icmp' : 'tcp',
-    custom_ct: pingNodeValidation.values.custom_ct,
-    custom_cu: pingNodeValidation.values.custom_cu,
-    custom_cm: pingNodeValidation.values.custom_cm,
-    custom_bd: pingNodeValidation.values.custom_bd,
-    node_1: pingNodeValidation.values.node_1, node_2: pingNodeValidation.values.node_2, node_3: pingNodeValidation.values.node_3, node_4: pingNodeValidation.values.node_4,
+    ...pingNodeValidation.values,
     rx_correction: editForm.value.rx_correction,
     tx_correction: editForm.value.tx_correction,
     auto_update: editForm.value.auto_update ? '1' : '0',

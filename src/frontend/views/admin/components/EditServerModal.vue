@@ -174,61 +174,24 @@
         </div>
       </div>
 
-      <div class="form-row">
-        <div class="form-group flex-1">
+      <div v-for="(pair, pairIndex) in visibleProbePairs" :key="pairIndex" class="form-row">
+        <div v-for="slot in pair" :key="slot.hostField" class="form-group flex-1">
           <label class="form-label">
-            {{ settings.custom_ct_name || trans.customCt }}
+            {{ settings[slot.nameField] || slot.defaultName }}
             <HelpTooltip :text="trans.pingNodeTip" />
           </label>
-          <input type="text" name="edit_custom_ct" autocomplete="off" v-model.trim="editForm.custom_ct" :class="['form-input', { 'input-invalid': pingNodeErrors.custom_ct }]" :placeholder="settings.custom_ct || 'gd-ct-dualstack.ip.zstaticcdn.com'">
-          <p v-if="pingNodeErrors.custom_ct" class="text-red text-sm mt-1">{{ pingNodeErrors.custom_ct }}</p>
-        </div>
-        <div class="form-group flex-1">
-          <label class="form-label">
-            {{ settings.custom_cu_name || trans.customCu }}
-            <HelpTooltip :text="trans.pingNodeTip" />
-          </label>
-          <input type="text" name="edit_custom_cu" autocomplete="off" v-model.trim="editForm.custom_cu" :class="['form-input', { 'input-invalid': pingNodeErrors.custom_cu }]" :placeholder="settings.custom_cu || 'gd-cu-dualstack.ip.zstaticcdn.com'">
-          <p v-if="pingNodeErrors.custom_cu" class="text-red text-sm mt-1">{{ pingNodeErrors.custom_cu }}</p>
+          <div class="ping-node-fields">
+            <input type="text" :name="`edit_${slot.nameField}`" autocomplete="off" v-model.trim="editForm[slot.nameField]" class="form-input ping-node-name" :placeholder="settings[slot.nameField] || slot.defaultName">
+            <span class="ping-node-arrow">→</span>
+            <input type="text" :name="`edit_${slot.hostField}`" autocomplete="off" v-model.trim="editForm[slot.hostField]" :class="['form-input', { 'input-invalid': pingNodeErrors[slot.hostField] }]" :placeholder="settings[slot.hostField] || 'host[:port] / [IPv6]:port'">
+          </div>
+          <p v-if="pingNodeErrors[slot.hostField]" class="text-red text-sm mt-1">{{ pingNodeErrors[slot.hostField] }}</p>
         </div>
       </div>
-      <div class="form-row">
-        <div class="form-group flex-1">
-          <label class="form-label">
-            {{ settings.custom_cm_name || trans.customCm }}
-            <HelpTooltip :text="trans.pingNodeTip" />
-          </label>
-          <input type="text" name="edit_custom_cm" autocomplete="off" v-model.trim="editForm.custom_cm" :class="['form-input', { 'input-invalid': pingNodeErrors.custom_cm }]" :placeholder="settings.custom_cm || 'gd-cm-dualstack.ip.zstaticcdn.com'">
-          <p v-if="pingNodeErrors.custom_cm" class="text-red text-sm mt-1">{{ pingNodeErrors.custom_cm }}</p>
-        </div>
-        <div class="form-group flex-1">
-          <label class="form-label">
-            {{ settings.custom_bd_name || trans.customBd }}
-            <HelpTooltip :text="trans.pingNodeTip" />
-          </label>
-          <input type="text" name="edit_custom_bd" autocomplete="off" v-model.trim="editForm.custom_bd" :class="['form-input', { 'input-invalid': pingNodeErrors.custom_bd }]" :placeholder="settings.custom_bd || 'ip.zstaticcdn.com'">
-          <p v-if="pingNodeErrors.custom_bd" class="text-red text-sm mt-1">{{ pingNodeErrors.custom_bd }}</p>
-        </div>
-      </div>
-      <div class="form-row">
-        <div v-for="(field, index) in ['node_1', 'node_2']" :key="field" class="form-group flex-1">
-          <label class="form-label">
-            {{ settings[`${field}_name`] || `Node ${index + 1}` }}
-            <HelpTooltip :text="trans.pingNodeTip" />
-          </label>
-          <input type="text" :name="`edit_${field}`" autocomplete="off" v-model.trim="editForm[field]" :class="['form-input', { 'input-invalid': pingNodeErrors[field] }]" :placeholder="settings[field] || 'host[:port] / [IPv6]:port'">
-          <p v-if="pingNodeErrors[field]" class="text-red text-sm mt-1">{{ pingNodeErrors[field] }}</p>
-        </div>
-      </div>
-      <div class="form-row">
-        <div v-for="(field, index) in ['node_3', 'node_4']" :key="field" class="form-group flex-1">
-          <label class="form-label">
-            {{ settings[`${field}_name`] || `Node ${index + 3}` }}
-            <HelpTooltip :text="trans.pingNodeTip" />
-          </label>
-          <input type="text" :name="`edit_${field}`" autocomplete="off" v-model.trim="editForm[field]" :class="['form-input', { 'input-invalid': pingNodeErrors[field] }]" :placeholder="settings[field] || 'host[:port] / [IPv6]:port'">
-          <p v-if="pingNodeErrors[field]" class="text-red text-sm mt-1">{{ pingNodeErrors[field] }}</p>
-        </div>
+      <div class="form-row probe-slot-actions">
+        <button type="button" class="btn btn-sm" :disabled="!canAddProbeSlot" @click="addProbeSlot">+ {{ trans.addProbeSlot || '增加探测点' }}</button>
+        <button v-if="canRemoveProbeSlot" type="button" class="btn btn-sm" @click="removeProbeSlot">− {{ trans.removeProbeSlot || '去掉最后一个' }}</button>
+        <span class="text-secondary text-sm">{{ visibleProbeCount }}/{{ maxProbes }}</span>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -267,9 +230,10 @@
 </template>
 
 <script setup>
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import HelpTooltip from '../../../components/HelpTooltip.vue'
-import { PING_NODE_FIELDS, validatePingNode } from '../../../utils/pingNode.js'
+import { validatePingNode } from '../../../utils/pingNode.js'
+import { ALL_PROBE_SLOTS, ALL_PROBE_HOST_FIELDS, LEGACY_PROBE_SLOT_COUNT, MAX_PROBES, filledProbeSlotCount } from '../../../utils/probes.js'
 import { currentLang } from '../../../utils/i18n.js'
 import { BILLING_CYCLES, CURRENCY_OPTIONS, normalizePrice, renewExpireDateIfNeeded } from '../../../utils/server.js'
 
@@ -286,8 +250,48 @@ const pingNodeErrorMessage = computed(() => (
   props.trans.invalidPingNodeFormat || 'Use domain, IPv4, or host:port. Port must be 1-65535.'
 ))
 
+const visibleProbeCount = ref(LEGACY_PROBE_SLOT_COUNT)
+const maxProbes = MAX_PROBES
+
+const visibleProbeSlots = computed(() => ALL_PROBE_SLOTS.slice(0, visibleProbeCount.value))
+const visibleProbePairs = computed(() => {
+  const pairs = []
+  for (let i = 0; i < visibleProbeSlots.value.length; i += 2) {
+    pairs.push(visibleProbeSlots.value.slice(i, i + 2))
+  }
+  return pairs
+})
+const canAddProbeSlot = computed(() => visibleProbeCount.value < MAX_PROBES)
+const canRemoveProbeSlot = computed(() => visibleProbeCount.value > LEGACY_PROBE_SLOT_COUNT)
+
+const addProbeSlot = () => {
+  visibleProbeCount.value = Math.min(MAX_PROBES, visibleProbeCount.value + 2)
+}
+
+const removeProbeSlot = () => {
+  if (visibleProbeCount.value <= LEGACY_PROBE_SLOT_COUNT) return
+  const next = Math.max(LEGACY_PROBE_SLOT_COUNT, visibleProbeCount.value - 2)
+  for (let i = next; i < visibleProbeCount.value; i += 1) {
+    const slot = ALL_PROBE_SLOTS[i]
+    if (!slot) continue
+    editForm.value[slot.hostField] = ''
+    editForm.value[slot.nameField] = ''
+  }
+  visibleProbeCount.value = next
+}
+
+watch(
+  () => [props.show, editForm.value?.id],
+  () => {
+    if (!props.show) return
+    const filled = filledProbeSlotCount(editForm.value)
+    const rounded = filled > LEGACY_PROBE_SLOT_COUNT && filled % 2 === 1 ? filled + 1 : filled
+    visibleProbeCount.value = Math.min(MAX_PROBES, Math.max(LEGACY_PROBE_SLOT_COUNT, rounded))
+  }
+)
+
 const pingNodeErrors = computed(() => Object.fromEntries(
-  PING_NODE_FIELDS.map(field => [
+  ALL_PROBE_HOST_FIELDS.map(field => [
     field,
     validatePingNode(editForm.value[field]).valid ? '' : pingNodeErrorMessage.value
   ])

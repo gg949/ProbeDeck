@@ -444,7 +444,7 @@ const online = Date.now() - server.last_updated < config.online_threshold_second
 
 **访客字段剥离**：未登录访客请求时，服务端按站点开关剥离受限字段（不能只靠前端隐藏）——`show_price` 关闭时 `price` / `currency` / `billing_cycle` / `auto_renewal` 不返回；`show_expire` 关闭时 `expire_date` 不返回；`show_tf` 关闭时 `traffic_limit` 不返回。主题需要兼容这些字段缺失，不要假设字段一定存在。
 
-`servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`（最多 8 条线路）。未配置的线路值为 `false` 或缺失，主题应不显示该条。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
+`servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`（外部 CF 主题最多读这 8 条）。ProbeDeck 2.13+ 另有 `servers[].probes`（最多 24，含每台自定义名称）；未适配主题忽略即可。未配置的线路值为 `false` 或缺失，主题应不显示该条。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
 
 **示例**：
 
@@ -832,6 +832,15 @@ interface LatencyWindowPoint {
   node_2?: number | null | false;
   node_3?: number | null | false;
   node_4?: number | null | false;
+  [key: `node_${number}`]?: number | null | false; // ProbeDeck 2.13+ 第 9–24 条，未适配主题可忽略
+}
+
+interface Probe {
+  id: string;          // ct / cu / cm / bd / node_1 … node_20
+  name: string;        // 该服务器最终显示名（本机覆盖优先，空则站点默认）
+  host: string;
+  ping: number | null | false;
+  loss: number | null | false;
 }
 
 interface Server {
@@ -878,6 +887,7 @@ interface Server {
   loss_node_2: number | null | false;
   loss_node_3: number | null | false;
   loss_node_4: number | null | false;
+  probes?: Probe[]; // ProbeDeck 2.13+：本机启用的探测点（最多 24）。外部 CF 主题可忽略，继续读 ping_ct…ping_node_4
   ping?: LatencyWindowPoint[]; // 仅 /api/servers 的列表项返回；三网详情关闭时为空数组
   loss?: LatencyWindowPoint[]; // 仅 /api/servers 的列表项返回；三网详情关闭时为空数组
   ram_total: number;

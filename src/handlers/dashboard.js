@@ -10,13 +10,14 @@ import {
   getWorkerLatestReportUpdates
 } from '../utils/latestReportCache.js';
 import { markFrontendRealtimeActive } from '../utils/realtimeBroadcastGate.js';
+import { LATENCY_NODE_IDS, attachResolvedProbeNames, buildPublicProbes } from '../utils/probes.js';
 import {
   DASHBOARD_LATENCY_WINDOW_HOURS,
   DASHBOARD_LATENCY_WINDOW_POINTS,
   DASHBOARD_LATEST_REPORT_ID_CHUNK_SIZE
 } from '../utils/config.js';
 
-const PROBE_FIELDS = ['ct', 'cu', 'cm', 'bd', 'node_1', 'node_2', 'node_3', 'node_4'];
+const PROBE_FIELDS = LATENCY_NODE_IDS;
 
 // REST 接口中，丢包值为 null 表示该探针没有可用样本；此时隐藏对应的延迟和丢包字段。
 export function omitNullLossProbeFields(item) {
@@ -61,6 +62,9 @@ function withoutPrivateServerFields(server) {
   delete item.note;
   delete item.auto_update;
   delete item.traffic_snapshots;
+  delete item.extra_probe_hosts;
+  delete item.extra_probe_names;
+  delete item.extra_probes;
   return normalizePublicIpFields(item);
 }
 
@@ -223,6 +227,8 @@ export async function handleServerAPI(request, env, sys) {
     getRealtimeStateForServers(env, [id])
   ]);
   mergeMetricsIntoServer(server, latestMetrics);
+  attachResolvedProbeNames(server, sys);
+  server.probes = buildPublicProbes(server, sys);
   server.latestReportUpdates = realtimeState.latestReportUpdates;
   server.sysConfig = {
     long_history_points: Number(normalizeLongHistoryPoints(sys.long_history_points))
@@ -270,6 +276,8 @@ export async function handleServersAPI(request, env, sys) {
       isOnline = (now - latestMetrics.timestamp) < onlineThresholdMs;
       mergeMetricsIntoServer(server, latestMetrics);
     }
+    attachResolvedProbeNames(server, sys);
+    server.probes = buildPublicProbes(server, sys);
     normalizePublicIpFields(server);
     
     if (isOnline) {

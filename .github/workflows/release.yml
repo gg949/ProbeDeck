@@ -77,4 +77,5 @@ jobs:
           files: |
             install.sh
             docker-compose.yml
-          make_latest: true
+          prerelease: ${{ contains(env.VERSION, 'beta') || contains(env.VERSION, 'rc') }}
+          make_latest: ${{ !(contains(env.VERSION, 'beta') || contains(env.VERSION, 'rc')) }}

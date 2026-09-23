@@ -2283,6 +2283,15 @@ body::before {
     margin-bottom: 0;
 }
 
+.probe-slot-actions {
+    align-items: center;
+    gap: 8px;
+}
+
+.probe-slot-actions .text-secondary {
+    margin-left: auto;
+}
+
 .section-title {
     font-size: 13px;
     font-weight: 600;

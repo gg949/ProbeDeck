@@ -9,6 +9,7 @@ import { addServerColumns } from '../database/updateDatabase.js';
 import { clearResourceAlertState, sendNotification } from '../services/notification.js';
 import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../database/indexOptimization.js';
 import { isValidTrafficCorrection, normalizeConnectionMode, normalizePingMode, normalizeWssReportInterval, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
+import { normalizeProbeSlotFields, serializeExtraHosts, serializeExtraNames } from '../utils/probes.js';
 import { scheduleAgentConfigChanged, scheduleAgentReportModeChanged } from '../utils/agentConfigNotify.js';
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../utils/serverBilling.js';
 import { THEME_PREVIEW_AUTH_TTL_SECONDS } from '../utils/config.js';
@@ -1123,7 +1124,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       }
       const normalizedAgentConfig = agentConfigResult.config;
 
-      const pingNodes = normalizePingNodeFields({ custom_ct, custom_cu, custom_cm, custom_bd, node_1, node_2, node_3, node_4 });
+      const pingNodes = normalizeProbeSlotFields(data);
       if (!pingNodes.valid) {
         return createBadRequestResponse('invalidPingNodeFormat');
       }
@@ -1160,7 +1161,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       try {
         await env.DB.prepare(`
           UPDATE servers
-          SET name = ?, server_group = ?, region = ?, tags = ?, note = ?, price = ?, billing_cycle = ?, auto_renewal = ?, currency = ?, expire_date = ?, traffic_limit = ?, traffic_calc_type = ?, "interface" = ?, reset_day = ?, collect_interval = ?, report_interval = ?, wss_report_interval = ?, connection_mode = ?, ping_mode = ?, auto_update = ?, custom_ct = ?, custom_cu = ?, custom_cm = ?, custom_bd = ?, node_1 = ?, node_2 = ?, node_3 = ?, node_4 = ?, rx_correction = ?, tx_correction = ?, offline_notify_disabled = ?, is_hidden = ?
+          SET name = ?, server_group = ?, region = ?, tags = ?, note = ?, price = ?, billing_cycle = ?, auto_renewal = ?, currency = ?, expire_date = ?, traffic_limit = ?, traffic_calc_type = ?, "interface" = ?, reset_day = ?, collect_interval = ?, report_interval = ?, wss_report_interval = ?, connection_mode = ?, ping_mode = ?, auto_update = ?, custom_ct = ?, custom_cu = ?, custom_cm = ?, custom_bd = ?, node_1 = ?, node_2 = ?, node_3 = ?, node_4 = ?, extra_probe_hosts = ?, extra_probe_names = ?, rx_correction = ?, tx_correction = ?, offline_notify_disabled = ?, is_hidden = ?
           WHERE id = ?
         `).bind(
           name || '',
@@ -1191,6 +1192,8 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
           pingNodes.values.node_2 ?? null,
           pingNodes.values.node_3 ?? null,
           pingNodes.values.node_4 ?? null,
+          serializeExtraHosts(pingNodes.values),
+          serializeExtraNames(pingNodes.values),
           safeRx,
           safeTx,
           normalizeBooleanFlag(offline_notify_disabled),
