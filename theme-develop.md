@@ -2,7 +2,7 @@
 
 > 面向第三方主题开发作者的 API 参考。
 >
-> 本文档适配 ProbeDeck（CF-Server-Monitor 的 Docker / VPS 自托管移植版，当前版本 v2.12.x）：公开 API 与 WebSocket 协议与原版保持一致，并新增了若干面板级动态设置（在线判定阈值、访客历史范围、历史档位扩展至 30 天等）——相关数值请通过 `/api/config` 动态读取，不要写死。
+> 本文档适配 ProbeDeck（CF-Server-Monitor 的 Docker / VPS 自托管移植版，当前版本 v2.13）：公开 API 与 WebSocket 协议与原版保持一致，并新增了若干面板级动态设置（在线判定阈值、访客历史范围、历史档位扩展至 30 天、每台最多 24 个探测点等）——相关数值请通过 `/api/config` 动态读取，不要写死。
 >
 > 本文档只保留第三方主题可用的公开 API、WebSocket 和静态目录约定，不介绍后台管理接口。
 >
@@ -127,7 +127,7 @@ my-theme/
 - 站点标题、背景图、自定义 `<head>`、自定义脚本由用户后台外观设置控制，主题不要把这些配置写死
 - 在线判定阈值、访客历史范围等面板设置请通过 `/api/config` 动态读取（见 [0.4](#04-面板运行时设置主题适配要求)），不要写死具体数值
 - 主题不可用时应让页面暴露加载错误，不要在主题内静默跳转到其他页面
-- 主题底部需要展示 `Powered by ProbeDeck`，并链接到 [https://github.com/gg949/ProbeDeck/](https://github.com/gg949/ProbeDeck/)；建议同时输出 `/api/config` 返回的 `version`，例如 `Powered by ProbeDeck v2.12.4`
+- 主题底部需要展示 `Powered by ProbeDeck`，并链接到 [https://github.com/gg949/ProbeDeck/](https://github.com/gg949/ProbeDeck/)；建议同时输出 `/api/config` 返回的 `version`，例如 `Powered by ProbeDeck v2.13.0`
 
 路由约定：
 
@@ -444,7 +444,28 @@ const online = Date.now() - server.last_updated < config.online_threshold_second
 
 **访客字段剥离**：未登录访客请求时，服务端按站点开关剥离受限字段（不能只靠前端隐藏）——`show_price` 关闭时 `price` / `currency` / `billing_cycle` / `auto_renewal` 不返回；`show_expire` 关闭时 `expire_date` 不返回；`show_tf` 关闭时 `traffic_limit` 不返回。主题需要兼容这些字段缺失，不要假设字段一定存在。
 
-`servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`（外部 CF 主题最多读这 8 条）。ProbeDeck 2.13+ 另有 `servers[].probes`（最多 24，含每台自定义名称）；未适配主题忽略即可。未配置的线路值为 `false` 或缺失，主题应不显示该条。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
+`servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`（外部 CF 主题最多读这 8 条）。ProbeDeck 2.13+ 另有 `servers[].probes`（最多 24，含每台自定义名称）：
+
+```js
+// 首页 ping 芯片：有 probes 就按数组画，没有走原来 8 个旧字段
+const probes = Array.isArray(server.probes) && server.probes.length
+  ? server.probes
+  : [
+      { id: 'ct', name: config.custom_ct_name || '电信', ping: server.ping_ct },
+      { id: 'cu', name: config.custom_cu_name || '联通', ping: server.ping_cu },
+      { id: 'cm', name: config.custom_cm_name || '移动', ping: server.ping_cm },
+      { id: 'bd', name: config.custom_bd_name || 'BGP', ping: server.ping_bd }
+    ];
+
+probes.forEach(p => {
+  if (p.ping === false || p.ping === undefined) return; // 未配置，不显示
+  // 详情历史 / WS 数值仍是扁平字段 ping_${id} / loss_${id}
+  const ping = historyRow[`ping_${p.id}`] ?? p.ping;
+  const loss = historyRow[`loss_${p.id}`] ?? p.loss;
+});
+```
+
+未适配主题忽略 `probes` 即可，最多仍显示 8 个。扩展点的显示名必须用 `probes[].name`（本机自定义名优先），不要回退成 `NODE_5` / `node_5`。颜色按数组下标循环 24 色（与内置主题 `PING_SLOT_COLORS` 一致）：`#00d4aa #ffb870 #4da6ff #b392f0 #ff7b72 #79c0ff #7ee787 #ffa657 #d2a8ff #ffa198 #56d4dd #f2cc60 #bc8cff #58a6ff #3fb950 #e3b341 #f85149 #a5d6ff #39d353 #ffc680 #2f81f7 #d29922 #db61a2 #6e7681`。未配置的线路值为 `false` 或缺失，主题应不显示该条。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
 
 **示例**：
 
@@ -550,7 +571,7 @@ Headers: (按需) Authorization, X-Turnstile-Token/Verified
 
 未登录访客请求详情接口时，同样受 2.2 的「访客字段剥离」影响。
 
-`ping` / `loss` 窗口数组仅在 `/api/servers` 的 `servers[]` 中返回，`/api/server` 详情接口不返回新增窗口数组。主题可从 `/api/config` 的 `latency_window` 读取当前窗口参数。只有后台开启三网详情时才会查询窗口数据；关闭时后端仍返回 `ping: []` / `loss: []`，主题不应展示三网小图。开启后，窗口从历史表最近 2 小时按时间范围抽样，最多 20 个真实样本点，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`，对应 4 条运营商线路 + 4 条自定义线路。显示名从 `/api/config` 的 `custom_*_name` / `node_*_name` 读取。时间间隔目标约 6 分钟，但 `ts` 保留真实上报时间，不会强制对齐为等差序列；历史不足、上报中断或某个时间段无数据时不会用最近点补齐，数组可能少于 20 个。该抽样结果在服务端缓存约 5 分钟。
+`ping` / `loss` 窗口数组仅在 `/api/servers` 的 `servers[]` 中返回，`/api/server` 详情接口不返回新增窗口数组。主题可从 `/api/config` 的 `latency_window` 读取当前窗口参数。只有后台开启三网详情时才会查询窗口数据；关闭时后端仍返回 `ping: []` / `loss: []`，主题不应展示三网小图。开启后，窗口从历史表最近 2 小时按时间范围抽样，最多 20 个真实样本点，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`，对应 4 条运营商线路 + 4 条自定义线路。ProbeDeck 2.13+ 首页 ping 芯片优先读 `servers[].probes`（最多 24，含每台自定义名称）；详情历史 / WS 数值仍是扁平 `ping_${id}` / `loss_${id}`。未适配主题继续读旧 8 字段即可。显示名优先 `probes[].name`，没有再从 `/api/config` 的 `custom_*_name` / `node_*_name` 读。时间间隔目标约 6 分钟，但 `ts` 保留真实上报时间，不会强制对齐为等差序列；历史不足、上报中断或某个时间段无数据时不会用最近点补齐，数组可能少于 20 个。该抽样结果在服务端缓存约 5 分钟。
 
 **失败返回**：
 

@@ -65,7 +65,7 @@ with the original — existing probe agents need no changes, and the theme ecosy
 - **🔔 Rich notification channels** — Telegram / WeCom / Feishu / DingTalk / Bark / ServerChan / WxPusher / Gotify / OneBot / custom Webhook
 - **🧩 Notification boost** — per-event emoji for offline / recovery / expiration / resource-alert / traffic / test events, plus custom JavaScript notification scripts (the `sendMessage` / `sendEvent` contract) to reach any push service
 - **📊 Traffic reports** — daily / weekly / monthly reports, each toggleable (uncheck all to disable); delivered on schedule in your notification timezone (weekly on Mondays, monthly on the 1st); first-enable / post-interruption periods are backfilled from history
-- **🎨 Theme ecosystem** — compatible with every original CFSM theme (one-click install from the Theme Store); custom CSS / JS / background image supported
+- **🎨 Theme ecosystem** — compatible with every original CFSM theme (one-click install from the Theme Store); custom CSS / JS / background image supported; up to 24 probes per server via `probes[]`
 - **🔄 One-click Cloudflare migration** — the built-in "Migrate from Cloudflare" tool moves all your D1 data over intact (servers, history, settings, password)
 - **🌍 Automatic region detection** — built-in MaxMind GeoLite2 offline database; country flags out of the box
 

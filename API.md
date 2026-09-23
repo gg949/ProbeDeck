@@ -376,7 +376,8 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | `ping_node_2`    | string\|number\|false\|null | ms  | 否  | 自定义节点 2 延时，语义同 `ping_ct`              |
 | `ping_node_3`    | string\|number\|false\|null | ms  | 否  | 自定义节点 3 延时，语义同 `ping_ct`              |
 | `ping_node_4`    | string\|number\|false\|null | ms  | 否  | 自定义节点 4 延时，语义同 `ping_ct`              |
-| `loss_ct`        | string\|number\|false|null | %   | 否  | 电信丢包率(%)：`false` / `"false"` 表示未配置/未上报/未取样；`100` 与对应 `ping_*` 的 `null` 同时出现表示该轮全超时；`0` 是有效值 |
+| `ping_node_5` 至 `ping_node_20` | string\|number\|false\|null | ms  | 否  | ProbeDeck 2.13+ 扩展探测点延时，语义同 `ping_ct`；未启用时字段可能缺失 |
+| `loss_ct`        | string\|number\|false\|null | %   | 否  | 电信丢包率(%)：`false` / `"false"` 表示未配置/未上报/未取样；`100` 与对应 `ping_*` 的 `null` 同时出现表示该轮全超时；`0` 是有效值 |
 | `loss_cu`        | string\|number\|false|null | %   | 否  | 联通丢包率，语义同 `loss_ct`                    |
 | `loss_cm`        | string\|number\|false|null | %   | 否  | 移动丢包率，语义同 `loss_ct`                    |
 | `loss_bd`        | string\|number\|false|null | %   | 否  | BGP 丢包率，语义同 `loss_ct`                   |
@@ -384,6 +385,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | `loss_node_2`    | string\|number\|false|null | %   | 否  | 自定义节点 2 丢包率，语义同 `loss_ct`           |
 | `loss_node_3`    | string\|number\|false|null | %   | 否  | 自定义节点 3 丢包率，语义同 `loss_ct`           |
 | `loss_node_4`    | string\|number\|false|null | %   | 否  | 自定义节点 4 丢包率，语义同 `loss_ct`           |
+| `loss_node_5` 至 `loss_node_20` | string\|number\|false\|null | %   | 否  | ProbeDeck 2.13+ 扩展探测点丢包率，语义同 `loss_ct`；未启用时字段可能缺失 |
 
 > **Ping/丢包取值约定（2026-09-07 修订）**：WebSocket 采样不携带探针字段时字段直接缺失（`undefined`）；REST `/api/server`、`/api/history/all` 因历史表列固定，统一把“未配置/未上报/未取样”归为 `false`，前端遇 `false` 或字段缺失均不显示。`null` 只用于表示该轮明确探测超时/未取到有效 RTT，前端按 “Timeout/超时” 展示。
 
@@ -1841,6 +1843,8 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 | `tcp_conn`                                    | number             | TCP 连接数                   |
 | `udp_conn`                                    | number             | UDP 套接字数                  |
 | `ping_ct` / `ping_cu` / `ping_cm` / `ping_bd` / `ping_node_1` 至 `ping_node_4` | number\|null\|false | 各运营商及自定义节点延时 (ms)；`false` 表示未配置/未上报/未取样（不显示），`null` 表示该轮超时/未取到有效 RTT（显示 Timeout） |
+| `ping_node_5` 至 `ping_node_20` / `loss_node_5` 至 `loss_node_20` | number\|null\|false | ProbeDeck 2.13+ 扩展探测点；未启用时字段可能缺失 |
+| `probes` | array | ProbeDeck 2.13+：本机启用的探测点 `{id,name,host,ping,loss}`，最多 24。首页 ping 芯片优先读这个数组；未适配主题可忽略，继续读旧 8 字段 |
 | `loss_ct` / `loss_cu` / `loss_cm` / `loss_bd` / `loss_node_1` 至 `loss_node_4` | number\|null\|false | 各运营商及自定义节点丢包率 (%)；`false` 表示未配置/未上报/未取样（不显示），`null` 表示没有丢包样本，`0`–`100` 是有效值，`100` 配合对应 `ping_*` 的 `null` 表示全超时 |
 | `ping` / `loss`                               | array              | 仅 `/api/servers` 的 `servers[]` 列表项返回，`/api/server` 详情接口不返回；后台开启三网详情时，从 D1 最近 2 小时历史按时间范围抽样最多 20 个真实样本点，当前 服务端内缓存约 5 分钟；关闭三网详情时为空数组且不触发这部分 D1 查询。点格式为 `{ ts, ct, cu, cm, bd }`，`ct/cu/cm/bd` 分别对应电信、联通、移动、BGP。`ts` 为真实上报时间，不强制等差对齐，也不会用最近点补齐缺口 |
 | `ram_total` / `ram_used`                      | number             | MB                        |
@@ -1871,7 +1875,7 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 | 字段          | 类型             | 说明 |
 | ----------- | -------------- | ---- |
 | `timestamp` | number (ms)    | 采样时间 |
-| 其余字段        | number\|string\|null | 当前 `/api/history/all` 固定返回：`cpu, gpu_info, ram_total, ram_used, disk_total, disk_used, disk_read_bps, disk_write_bps, disk_read_iops, disk_write_iops, disk_await_ms, disk_util, processes, net_in_speed, net_out_speed, tcp_conn, udp_conn, ping_ct, ping_cu, ping_cm, ping_bd, ping_node_1, ping_node_2, ping_node_3, ping_node_4, loss_ct, loss_cu, loss_cm, loss_bd, loss_node_1, loss_node_2, loss_node_3, loss_node_4, swap_total, swap_used, load_avg, region, kernel_version`；其中 `gpu_info` 通常是 JSON 数组字符串，`disk` 仅在 `disk_*` 历史列存在有效数据时由服务端还原 |
+| 其余字段        | number\|string\|null | 当前 `/api/history/all` 固定返回旧 8 条 ping/loss 列，以及 `extra_probes`（ProbeDeck 2.13+ JSON，含 `ping_node_5`…`ping_node_20` / `loss_node_*`）。前端合并后可读扁平 `ping_node_N`。其余：`cpu, gpu_info, ram_total, ram_used, disk_total, disk_used, disk_read_bps, disk_write_bps, disk_read_iops, disk_write_iops, disk_await_ms, disk_util, processes, net_in_speed, net_out_speed, tcp_conn, udp_conn, ping_ct, ping_cu, ping_cm, ping_bd, ping_node_1, ping_node_2, ping_node_3, ping_node_4, loss_ct, loss_cu, loss_cm, loss_bd, loss_node_1, loss_node_2, loss_node_3, loss_node_4, swap_total, swap_used, load_avg, region, kernel_version`；其中 `gpu_info` 通常是 JSON 数组字符串，`disk` 仅在 `disk_*` 历史列存在有效数据时由服务端还原 |
 
 历史行不包含单独的 `gpu` 字段，只包含 `gpu_info`。
 
