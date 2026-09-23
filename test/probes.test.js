@@ -9,7 +9,9 @@ import {
   serializeExtraPingLoss,
   mergeExtraPingLoss,
   buildPublicProbes,
-  attachResolvedProbeNames
+  attachResolvedProbeNames,
+  probeCliFlag,
+  pingSlotColor
 } from '../src/utils/probes.js';
 import { buildAgentConfig, serializeAgentConfig } from '../src/utils/agentConfig.js';
 
@@ -64,5 +66,11 @@ assert.equal(schema8.includes('node_5='), false);
 const schema9 = serializeAgentConfig(buildAgentConfig({ node_5: '8.8.8.8' }, null, 9));
 assert.equal(schema9.includes('node_5=8.8.8.8'), true);
 assert.equal(schema9.includes('schema_version=9'), true);
+
+assert.equal(probeCliFlag(ALL_PROBE_SLOTS[0]), 'ct');
+assert.equal(probeCliFlag(ALL_PROBE_SLOTS[4]), 'node_1');
+assert.equal(probeCliFlag(ALL_PROBE_SLOTS[8]), 'node_5');
+assert.equal(pingSlotColor(0), '#00d4aa');
+assert.equal(pingSlotColor(8), '#d2a8ff');
 
 console.log('probes.test.js ok');

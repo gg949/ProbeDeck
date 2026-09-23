@@ -4201,6 +4201,23 @@ body.server-row-drag-active * {
     color: #ffa657;
 }
 
+.ping-node-5 { color: #d2a8ff; }
+.ping-node-6 { color: #ffa198; }
+.ping-node-7 { color: #56d4dd; }
+.ping-node-8 { color: #f2cc60; }
+.ping-node-9 { color: #bc8cff; }
+.ping-node-10 { color: #58a6ff; }
+.ping-node-11 { color: #3fb950; }
+.ping-node-12 { color: #e3b341; }
+.ping-node-13 { color: #f85149; }
+.ping-node-14 { color: #a5d6ff; }
+.ping-node-15 { color: #39d353; }
+.ping-node-16 { color: #ffc680; }
+.ping-node-17 { color: #2f81f7; }
+.ping-node-18 { color: #d29922; }
+.ping-node-19 { color: #db61a2; }
+.ping-node-20 { color: #6e7681; }
+
 .modal-body-content {
     padding: 16px 0;
 }

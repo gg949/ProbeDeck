@@ -133,8 +133,9 @@
           <span class="config-label">{{ settings.custom_bd_name || trans.customBd }}</span>
           <span class="config-value">{{ isBlank(customBd) ? '-' : customBd }}</span>
         </div>
-        <div v-for="(node, index) in [node1, node2, node3, node4]" :key="index" class="config-row">
-          <span class="config-label">{{ settings[`node_${index + 1}_name`] || `Node ${index + 1}` }}</span><span class="config-value">{{ isBlank(node) ? '-' : node }}</span>
+        <div v-for="slot in extraPreviewSlots" :key="slot.hostField" class="config-row">
+          <span class="config-label">{{ extraNodeLabel(slot) }}</span>
+          <span class="config-value">{{ isBlank(previewNodeHosts[slot.hostField]) ? '-' : previewNodeHosts[slot.hostField] }}</span>
         </div>
       </div>
 
@@ -179,6 +180,7 @@ const props = defineProps({
   customCm: { type: String, default: '' },
   customBd: { type: String, default: '' },
   node1: { type: String, default: '' }, node2: { type: String, default: '' }, node3: { type: String, default: '' }, node4: { type: String, default: '' },
+  extraNodeHosts: { type: Object, default: () => ({}) },
   networkInterface: { type: String, default: '' },
   resetDay: { type: [Number, String], default: 1 },
   rxCorrection: { type: [Number, String], default: '' },
@@ -249,4 +251,29 @@ watch(
 
 const isBlank = (value) => value === '' || value === null || value === undefined
 const formatWithUnit = (value, unit) => (isBlank(value) ? '-' : `${value} ${unit}`)
+
+const previewNodeHosts = computed(() => ({
+  node_1: props.node1,
+  node_2: props.node2,
+  node_3: props.node3,
+  node_4: props.node4,
+  ...(props.extraNodeHosts || {})
+}))
+
+const extraPreviewSlots = computed(() => {
+  const hosts = previewNodeHosts.value
+  const slots = [
+    { hostField: 'node_1', nameField: 'node_1_name', defaultName: 'Node 1' },
+    { hostField: 'node_2', nameField: 'node_2_name', defaultName: 'Node 2' },
+    { hostField: 'node_3', nameField: 'node_3_name', defaultName: 'Node 3' },
+    { hostField: 'node_4', nameField: 'node_4_name', defaultName: 'Node 4' },
+    ...Array.from({ length: 16 }, (_, i) => {
+      const n = i + 5
+      return { hostField: `node_${n}`, nameField: `node_${n}_name`, defaultName: `Node ${n}` }
+    })
+  ]
+  return slots.filter((slot) => !isBlank(hosts[slot.hostField]))
+})
+
+const extraNodeLabel = (slot) => props.settings?.[slot.nameField] || slot.defaultName
 </script>

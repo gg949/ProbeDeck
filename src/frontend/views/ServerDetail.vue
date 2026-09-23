@@ -286,7 +286,7 @@
           </span>
           <div class="chart-header-actions">
             <div class="ping-indicator">
-              <span v-for="item in visiblePingStats" :key="item.field" :class="item.className">
+              <span v-for="item in visiblePingStats" :key="item.field" :class="item.className" :style="{ color: item.color }">
                 {{ item.label }} <b>{{ item.value !== null ? item.value + 'ms' : 'Timeout' }}</b>
               </span>
             </div>
@@ -306,7 +306,7 @@
           </span>
           <div class="chart-header-actions">
             <div class="ping-indicator">
-              <span v-for="item in visibleLossStats" :key="item.field" :class="item.className">
+              <span v-for="item in visibleLossStats" :key="item.field" :class="item.className" :style="{ color: item.color }">
                 {{ item.label }} <b>{{ item.value }}%</b>
               </span>
             </div>
@@ -364,7 +364,7 @@ import { CHART, HISTORY } from '../utils/constants'
 import { formatDateTime, normalizeTimestamp as normalizeMetricTimestamp } from '../utils/time.js'
 import useTheme from '../composables/useTheme'
 import { isDisabledProbeMetric } from '../utils/server.js'
-import { ALL_PROBE_SLOTS } from '../utils/probes.js'
+import { ALL_PROBE_SLOTS, pingSlotColor } from '../utils/probes.js'
 import { resolvePlaybackCursor } from '../utils/playback.js'
 import { applyMikusThemeOptions } from '../utils/themeOptions.js'
 
@@ -445,18 +445,39 @@ const ChartExpandButton = {
   }
 }
 
-const PING_COLORS = ['#00d4aa', '#ffb870', '#4da6ff', '#b392f0', '#ff7b72', '#79c0ff', '#7ee787', '#ffa657', '#d2a8ff', '#ffa198', '#56d4dd', '#f2cc60', '#8b949e', '#58a6ff', '#3fb950', '#e3b341', '#f85149', '#a5d6ff', '#7d8590', '#bc8cff', '#39d353', '#ffc680', '#6e7681', '#2f81f7']
 const PING_FIELD_DEFS = ALL_PROBE_SLOTS.map((slot, index) => ({
   field: slot.pingField,
   lossField: slot.lossField,
   id: slot.id,
-  className: `ping-${slot.id.replace('_', '-')}`,
+  color: pingSlotColor(index),
+  className: `ping-${slot.id.replaceAll('_', '-')}`,
   datasetIndex: index
 }))
 const pingLabel = (key) => {
   const probe = Array.isArray(server.value?.probes) ? server.value.probes.find(item => item.id === key) : null
   if (probe?.name) return probe.name
-  return String(appConfig?.[key.startsWith('node_') ? `${key}_name` : `custom_${key}_name`] || trans.value[`ping${key.toUpperCase().charAt(0)}${key.slice(1)}`] || key.toUpperCase())
+  const slot = ALL_PROBE_SLOTS.find(item => item.id === key)
+  const own = server.value?.[slot?.nameField]
+  if (own) return own
+  if (slot) {
+    const site = appConfig?.[slot.nameField]
+    if (site) return site
+    return slot.defaultName
+  }
+  return String(appConfig?.[key.startsWith('node_') ? `${key}_name` : `custom_${key}_name`] || key.toUpperCase())
+}
+
+const syncProbeChartLabels = () => {
+  for (const chartKey of ['ping', 'loss']) {
+    const chart = charts[chartKey]
+    if (!chart) continue
+    for (const item of PING_FIELD_DEFS) {
+      const dataset = chart.data.datasets[item.datasetIndex]
+      if (!dataset) continue
+      dataset.label = pingLabel(item.id)
+      dataset.borderColor = item.color
+    }
+  }
 }
 
 const DISK_IO_FIELDS = ['read_bps', 'write_bps', 'read_iops', 'write_iops', 'await_ms', 'util']
@@ -833,8 +854,8 @@ const CHART_DEFS = [
   { key: 'proc', ref: () => procChartRef.value, datasets: [ds('Processes', '#f778ba', { fill: true })] },
   { key: 'net', ref: () => netChartRef.value, datasets: [ds('Download', '#00d4aa', { fill: true }), ds('Upload', '#4da6ff', { fill: true })], legend: true, formatValue: (v) => formatBytes(v) + '/s', tickFormat: (v) => formatBytes(v) },
   { key: 'conn', ref: () => connChartRef.value, datasets: [ds('TCP', '#b392f0'), ds('UDP', '#f778ba')], legend: true },
-  { key: 'ping', ref: () => pingChartRef.value, datasets: PING_FIELD_DEFS.map((item, i) => ds(pingLabel(item.id), PING_COLORS[i % PING_COLORS.length], { tension: 0.3 })), unit: ' ms', legend: true },
-  { key: 'loss', ref: () => lossChartRef.value, datasets: PING_FIELD_DEFS.map((item, i) => ds(pingLabel(item.id), PING_COLORS[i % PING_COLORS.length], { tension: 0.3 })), unit: '%', legend: true },
+  { key: 'ping', ref: () => pingChartRef.value, datasets: PING_FIELD_DEFS.map((item) => ds(pingLabel(item.id), item.color, { tension: 0.3 })), unit: ' ms', legend: true },
+  { key: 'loss', ref: () => lossChartRef.value, datasets: PING_FIELD_DEFS.map((item) => ds(pingLabel(item.id), item.color, { tension: 0.3 })), unit: '%', legend: true },
   { key: 'load', ref: () => loadChartRef.value, datasets: [ds(trans.value.load1m || '1 Min', '#00d4aa', { tension: 0.3 }), ds(trans.value.load5m || '5 Min', '#ffb870', { tension: 0.3 }), ds(trans.value.load15m || '15 Min', '#4da6ff', { tension: 0.3 })], legend: true }
 ]
 
@@ -863,6 +884,7 @@ const syncProbeChartVisibility = () => {
     }
     chart.update('none')
   }
+  syncProbeChartLabels()
 }
 
 let lastGpuSignature = ''
@@ -1749,6 +1771,17 @@ watch([cpuChartRef, gpuChartRef, ramChartRef, diskChartRef, diskIoChartRef, netC
     initChartsOnMount()
   }
 })
+
+watch(
+  () => (Array.isArray(server.value?.probes) ? server.value.probes.map(item => `${item.id}:${item.name}`).join('|') : ''),
+  () => {
+    if (!chartsReady.value) return
+    syncProbeChartLabels()
+    for (const chartKey of ['ping', 'loss']) {
+      charts[chartKey]?.update('none')
+    }
+  }
+)
 
 let clockTickTimer = null
 

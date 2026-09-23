@@ -39,6 +39,26 @@ export const EXTRA_LOSS_FIELDS = Object.freeze(EXTRA_PROBE_SLOTS.map(slot => slo
 export const ALL_PING_FIELDS = Object.freeze(ALL_PROBE_SLOTS.map(slot => slot.pingField));
 export const ALL_LOSS_FIELDS = Object.freeze(ALL_PROBE_SLOTS.map(slot => slot.lossField));
 export const LATENCY_NODE_IDS = Object.freeze(ALL_PROBE_SLOTS.map(slot => slot.id));
+export const PING_SLOT_COLORS = Object.freeze([
+  '#00d4aa', '#ffb870', '#4da6ff', '#b392f0',
+  '#ff7b72', '#79c0ff', '#7ee787', '#ffa657',
+  '#d2a8ff', '#ffa198', '#56d4dd', '#f2cc60',
+  '#bc8cff', '#58a6ff', '#3fb950', '#e3b341',
+  '#f85149', '#a5d6ff', '#39d353', '#ffc680',
+  '#2f81f7', '#d29922', '#db61a2', '#6e7681'
+]);
+
+export function pingSlotColor(index) {
+  return PING_SLOT_COLORS[index % PING_SLOT_COLORS.length];
+}
+
+export function probeCliFlag(slot) {
+  if (slot.id === 'ct') return 'ct';
+  if (slot.id === 'cu') return 'cu';
+  if (slot.id === 'cm') return 'cm';
+  if (slot.id === 'bd') return 'bd';
+  return slot.hostField;
+}
 
 const NAME_SAFE = /[^\p{L}\p{N} ._\-]/gu;
 

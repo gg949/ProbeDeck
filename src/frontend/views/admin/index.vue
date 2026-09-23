@@ -262,6 +262,7 @@
         :node-2="node2"
         :node-3="node3"
         :node-4="node4"
+        :extra-node-hosts="extraNodeHosts"
         :network-interface="networkInterface"
         :reset-day="resetDay"
         :rx-correction="rxCorrection"
@@ -421,7 +422,7 @@ import { adminApi, login, logout as apiLogout, upgradeDatabase, clearHistory, ge
 import { hasMultipleApiBases } from '../../utils/config.js'
 import { t, useTranslation } from '../../utils/i18n'
 import { validatePingNode } from '../../utils/pingNode.js'
-import { ALL_PROBE_HOST_FIELDS, ALL_PROBE_NAME_FIELDS, ALL_PROBE_SLOTS } from '../../utils/probes.js'
+import { ALL_PROBE_HOST_FIELDS, ALL_PROBE_NAME_FIELDS, ALL_PROBE_SLOTS, EXTRA_PROBE_SLOTS, probeCliFlag } from '../../utils/probes.js'
 import { normalizeDisplayMode, resolveDisplayMode } from '../../utils/displayMode.js'
 import { applyMikusThemeOptions } from '../../utils/themeOptions.js'
 import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY, ONLINE_THRESHOLD_SECOND_OPTIONS, PUBLIC_HISTORY_HOUR_OPTIONS } from '../../utils/constants.js'
@@ -1029,6 +1030,7 @@ const node1 = ref('')
 const node2 = ref('')
 const node3 = ref('')
 const node4 = ref('')
+const extraNodeHosts = ref({})
 const explicitEmptyNodes = ref({})
 const networkInterface = ref('')
 const resetDay = ref(1)
@@ -1697,11 +1699,13 @@ const copyCmd = (serverId) => {
   const node2Value = resolveServerPingNode(server, 'node_2')
   const node3Value = resolveServerPingNode(server, 'node_3')
   const node4Value = resolveServerPingNode(server, 'node_4')
+  const extraResolved = Object.fromEntries(EXTRA_PROBE_SLOTS.map(slot => [slot.hostField, resolveServerPingNode(server, slot.hostField)]))
   explicitEmptyNodes.value = {
     custom_ct: customCtNode.explicitEmpty, custom_cu: customCuNode.explicitEmpty,
     custom_cm: customCmNode.explicitEmpty, custom_bd: customBdNode.explicitEmpty,
     node_1: node1Value.explicitEmpty, node_2: node2Value.explicitEmpty,
-    node_3: node3Value.explicitEmpty, node_4: node4Value.explicitEmpty
+    node_3: node3Value.explicitEmpty, node_4: node4Value.explicitEmpty,
+    ...Object.fromEntries(EXTRA_PROBE_SLOTS.map(slot => [slot.hostField, extraResolved[slot.hostField].explicitEmpty]))
   }
   customCt.value = customCtNode.value
   customCu.value = customCuNode.value
@@ -1711,6 +1715,7 @@ const copyCmd = (serverId) => {
   node2.value = node2Value.value
   node3.value = node3Value.value
   node4.value = node4Value.value
+  extraNodeHosts.value = Object.fromEntries(EXTRA_PROBE_SLOTS.map(slot => [slot.hostField, extraResolved[slot.hostField].value]))
   networkInterface.value = server?.interface || ''
   resetDay.value = server?.reset_day ?? 1
   rxCorrection.value = server?.rx_correction ?? ''
@@ -1790,6 +1795,29 @@ const buildInstallAsCfsmCommand = (command, runStep) => {
   return lines.join('\n')
 }
 
+
+const pingNodeInstallValues = () => ({
+  custom_ct: customCt.value,
+  custom_cu: customCu.value,
+  custom_cm: customCm.value,
+  custom_bd: customBd.value,
+  node_1: node1.value,
+  node_2: node2.value,
+  node_3: node3.value,
+  node_4: node4.value,
+  ...extraNodeHosts.value
+})
+
+const appendPingNodeInstallFlags = (params, wrap) => {
+  const values = pingNodeInstallValues()
+  for (const slot of ALL_PROBE_SLOTS) {
+    const value = values[slot.hostField] ?? ''
+    if (value || explicitEmptyNodes.value[slot.hostField]) {
+      params.push(`-${probeCliFlag(slot)}=${wrap(value)}`)
+    }
+  }
+}
+
 const getCustomInstallCommand = () => {
   const HOST = selectedApiBase.value
   const autoUpdateFlag = autoUpdate.value ? 1 : 0
@@ -1818,11 +1846,7 @@ const getCustomInstallCommand = () => {
       `-reset_day='${resetDay.value ?? 1}'`,
       `-auto_update='${autoUpdateFlag}'`
     )
-    if (customCt.value || explicitEmptyNodes.value.custom_ct) params.push(`-ct='${customCt.value}'`)
-    if (customCu.value || explicitEmptyNodes.value.custom_cu) params.push(`-cu='${customCu.value}'`)
-    if (customCm.value || explicitEmptyNodes.value.custom_cm) params.push(`-cm='${customCm.value}'`)
-    if (customBd.value || explicitEmptyNodes.value.custom_bd) params.push(`-bd='${customBd.value}'`)
-    if (node1.value || explicitEmptyNodes.value.node_1) params.push(`-node_1='${node1.value}'`); if (node2.value || explicitEmptyNodes.value.node_2) params.push(`-node_2='${node2.value}'`); if (node3.value || explicitEmptyNodes.value.node_3) params.push(`-node_3='${node3.value}'`); if (node4.value || explicitEmptyNodes.value.node_4) params.push(`-node_4='${node4.value}'`)
+    appendPingNodeInstallFlags(params, (value) => `'${value}'`)
     if (networkInterface.value) params.push(`-interface='${networkInterface.value}'`)
     if (hasCorrectionValue(rxCorrection.value)) params.push(`-rx_correction='${rxCorrection.value}'`)
     if (hasCorrectionValue(txCorrection.value)) params.push(`-tx_correction='${txCorrection.value}'`)
@@ -1843,11 +1867,7 @@ const getCustomInstallCommand = () => {
     `-reset_day=${resetDay.value ?? 1}`,
     `-auto_update=${autoUpdateFlag}`
   )
-  if (customCt.value || explicitEmptyNodes.value.custom_ct) params.push(`-ct='${customCt.value}'`)
-  if (customCu.value || explicitEmptyNodes.value.custom_cu) params.push(`-cu='${customCu.value}'`)
-  if (customCm.value || explicitEmptyNodes.value.custom_cm) params.push(`-cm='${customCm.value}'`)
-  if (customBd.value || explicitEmptyNodes.value.custom_bd) params.push(`-bd='${customBd.value}'`)
-  if (node1.value || explicitEmptyNodes.value.node_1) params.push(`-node_1='${node1.value}'`); if (node2.value || explicitEmptyNodes.value.node_2) params.push(`-node_2='${node2.value}'`); if (node3.value || explicitEmptyNodes.value.node_3) params.push(`-node_3='${node3.value}'`); if (node4.value || explicitEmptyNodes.value.node_4) params.push(`-node_4='${node4.value}'`)
+  appendPingNodeInstallFlags(params, (value) => `'${value}'`)
   if (networkInterface.value) params.push(`-interface=${networkInterface.value}`)
   if (hasCorrectionValue(rxCorrection.value)) params.push(`-rx_correction=${rxCorrection.value}`)
   if (hasCorrectionValue(txCorrection.value)) params.push(`-tx_correction=${txCorrection.value}`)
