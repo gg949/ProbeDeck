@@ -35,6 +35,7 @@
 - [4. 错误处理](#4-错误处理)
 - [5. 类型定义](#5-类型定义)
 - [6. 常见问题](#6-常见问题)
+- [7. 附：24 探测点适配实战坑（移植记录）](#7-附24-探测点适配实战坑移植记录)
 
 ***
 
@@ -158,7 +159,7 @@ my-theme/
 | `long_history_points` | 长历史查询返回的采样点数（`60` / `120` / `180` / `240`） | 历史图表按实际返回点数渲染 |
 | `latency_window` | `ping` / `loss` 窗口参数（`points` 点数、`hours` 回看小时数） | 展示延迟小图时作为窗口参考 |
 | `site_title`、`display_mode`、`preferred_theme`、`default_language`、`custom_*_name`、`node_*_name` | 站点标题、默认展示模式、主题与语言、自定义显示名 | 用于页面标题与指标命名，不要写死 |
-| Ping 线路 | 最多 **8 条**：`ct` / `cu` / `cm` / `bd` + `node_1` … `node_4` | 窗口点与当前值都带这 8 个字段；显示名走 `custom_*_name` / `node_*_name`；未配置的线路值为 `false` 或缺失，主题应不显示 |
+| Ping 线路 | 最多 **24 条**：`ct` / `cu` / `cm` / `bd` + `node_1` … `node_20`（2.13+ 每台可启用扩展点；旧面板只有前 8 条） | 窗口点与当前值都带已启用槽位的字段；显示名优先取服务器对象上的 `custom_*_name` / `node_*_name`（2.13+ 含扩展点，本机自定义名优先），站点级 `/api/config` 只有前 8 槽名字；未配置的线路值为 `false` 或缺失，主题应不显示 |
 | `theme_options` | 主题自身的配置（配合 `POST /api/theme_options` 保存） | 作为主题自身设置的读写入口 |
 
 ### 0.5 更新主题后如何生效
@@ -237,9 +238,9 @@ Headers: (可选) Authorization: Bearer <jwt>, X-Turnstile-Token / X-Turnstile-V
 
 ```json
 {
-  "version": "2.12.4",
-  "last_workers_version": "2.12.4",
-  "last_agent_version": "v1.0.18",
+  "version": "2.13.0",
+  "last_workers_version": "2.13.0",
+  "last_agent_version": "v1.0.19",
   "is_public": true,
   "authorization": true,
   "turnstile_enabled": false,
@@ -444,7 +445,7 @@ const online = Date.now() - server.last_updated < config.online_threshold_second
 
 **访客字段剥离**：未登录访客请求时，服务端按站点开关剥离受限字段（不能只靠前端隐藏）——`show_price` 关闭时 `price` / `currency` / `billing_cycle` / `auto_renewal` 不返回；`show_expire` 关闭时 `expire_date` 不返回；`show_tf` 关闭时 `traffic_limit` 不返回。主题需要兼容这些字段缺失，不要假设字段一定存在。
 
-`servers[].ping` / `servers[].loss` 仅在列表接口返回，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`（外部 CF 主题最多读这 8 条）。ProbeDeck 2.13+ 另有 `servers[].probes`（最多 24，含每台自定义名称）：
+`servers[].ping` / `servers[].loss` 仅在列表接口返回。2.13 起点里带**已启用槽位**的字段：前 8 槽 `{ ct, cu, cm, bd, node_1 … node_4 }`，已配置的扩展点 `node_5` … `node_20`（值为数字 / `false` / `null`，仅在有数据时出现）；只读前 8 条字段的主题不受影响。ProbeDeck 2.13+ 另有 `servers[].probes`（最多 24，含每台自定义名称）：
 
 ```js
 // 首页 ping 芯片：有 probes 就按数组画，没有走原来 8 个旧字段
@@ -571,7 +572,7 @@ Headers: (按需) Authorization, X-Turnstile-Token/Verified
 
 未登录访客请求详情接口时，同样受 2.2 的「访客字段剥离」影响。
 
-`ping` / `loss` 窗口数组仅在 `/api/servers` 的 `servers[]` 中返回，`/api/server` 详情接口不返回新增窗口数组。主题可从 `/api/config` 的 `latency_window` 读取当前窗口参数。只有后台开启三网详情时才会查询窗口数据；关闭时后端仍返回 `ping: []` / `loss: []`，主题不应展示三网小图。开启后，窗口从历史表最近 2 小时按时间范围抽样，最多 20 个真实样本点，点格式为 `{ ts, ct, cu, cm, bd, node_1, node_2, node_3, node_4 }`，对应 4 条运营商线路 + 4 条自定义线路。ProbeDeck 2.13+ 首页 ping 芯片优先读 `servers[].probes`（最多 24，含每台自定义名称）；详情历史 / WS 数值仍是扁平 `ping_${id}` / `loss_${id}`。未适配主题继续读旧 8 字段即可。显示名优先 `probes[].name`，没有再从 `/api/config` 的 `custom_*_name` / `node_*_name` 读。时间间隔目标约 6 分钟，但 `ts` 保留真实上报时间，不会强制对齐为等差序列；历史不足、上报中断或某个时间段无数据时不会用最近点补齐，数组可能少于 20 个。该抽样结果在服务端缓存约 5 分钟。
+`ping` / `loss` 窗口数组仅在 `/api/servers` 的 `servers[]` 中返回，`/api/server` 详情接口不返回新增窗口数组。主题可从 `/api/config` 的 `latency_window` 读取当前窗口参数。只有后台开启三网详情时才会查询窗口数据；关闭时后端仍返回 `ping: []` / `loss: []`，主题不应展示三网小图。开启后，窗口从历史表最近 2 小时按时间范围抽样，最多 20 个真实样本点；点里前 8 槽为 `{ ct, cu, cm, bd, node_1 … node_4 }`，2.13 起已配置的扩展点（`node_5` … `node_20`）同样带在点里。ProbeDeck 2.13+ 首页 ping 芯片优先读 `servers[].probes`（最多 24，含每台自定义名称）；详情历史 / WS 数值仍是扁平 `ping_${id}` / `loss_${id}`。未适配主题继续读旧 8 字段即可。显示名优先 `probes[].name`，没有再从 `/api/config` 的 `custom_*_name` / `node_*_name` 读。时间间隔目标约 6 分钟，但 `ts` 保留真实上报时间，不会强制对齐为等差序列；历史不足、上报中断或某个时间段无数据时不会用最近点补齐，数组可能少于 20 个。该抽样结果在服务端缓存约 5 分钟。
 
 **失败返回**：
 
@@ -650,6 +651,7 @@ Headers: (按需) Authorization: Bearer <jwt>, X-Turnstile-Token/Verified
 - **登录用户**：所有档位可用。服务端只返回实际保留范围内的数据，请求跨度超过保留范围时不会报错，只是更早的部分没有数据
 - 服务端按后台 `long_history_points` 配置返回采样点，默认 120 个点
 - 历史行有磁盘 IO 数据时会返回 `disk` 对象；为兼容历史存储，也可能同时包含 `disk_read_bps`、`disk_write_bps`、`disk_read_iops`、`disk_write_iops`、`disk_await_ms`、`disk_util` 平铺字段。主题只需要读取 `disk`；缺失时不应展示磁盘 IO 图表
+- Ping / 丢包为扁平字段 `ping_ct` … `ping_node_20` / `loss_*`；2.13 扩展点数值可能同时出现在 `extra_probes`（JSON 字符串，`{"ping_node_5": 43, "loss_node_5": 0}`）里。两种形态都兜底：`row[`ping_${id}`] ?? JSON.parse(row.extra_probes || `{}`)[`ping_${id}`]`
 - 数据库字段缺失且需要升级时可能返回 `409 { "message": "databaseUpgradeRequired" }`
 
 **示例**：
@@ -740,7 +742,7 @@ Headers: Upgrade: websocket, Connection: Upgrade
 | `pong` | 双向 | `{ type: "pong", ts: number }` |
 | `batchUpdate` | S → C | `{ type: "batchUpdate", ts: number, updates: Array<{serverId, samples: Array<{ts, data?: Partial<Server>, payload?: Partial<Server>, metrics?: Partial<Server>}>}> }` |
 
-`batchUpdate.samples[]` 的指标对象可能出现在 `data`、`payload` 或 `metrics` 中，主题应按 `sample.data || sample.payload || sample.metrics` 读取。该对象是增量字段：批次内的高频采样点主要包含 CPU、内存、Swap、网速和时间字段；每次上报的最后一个样本会额外携带本次完整报告状态，用于同步磁盘容量、磁盘 IO、GPU、进程、连接数、探针、Ping/丢包等报告级数据。`disk` 缺失、格式无效或所有子字段全为 0 时，WebSocket 样本不会携带 `disk`。
+`batchUpdate.samples[]` 的指标对象可能出现在 `data`、`payload` 或 `metrics` 中，主题应按 `sample.data || sample.payload || sample.metrics` 读取。Ping / 丢包数值为扁平字段 `ping_ct` … `ping_node_20` / `loss_*`（2.13+ 扩展点同样推送；扩展点值可能是字符串数字如 `"49"`，按数字解析要容错；未配置槽为 `false`，超时为 `null`）。该对象是增量字段：批次内的高频采样点主要包含 CPU、内存、Swap、网速和时间字段；每次上报的最后一个样本会额外携带本次完整报告状态，用于同步磁盘容量、磁盘 IO、GPU、进程、连接数、探针、Ping/丢包等报告级数据。`disk` 缺失、格式无效或所有子字段全为 0 时，WebSocket 样本不会携带 `disk`。
 
 **示例（subscribe=all，带 ID 过滤）**：
 
@@ -908,6 +910,16 @@ interface Server {
   loss_node_2: number | null | false;
   loss_node_3: number | null | false;
   loss_node_4: number | null | false;
+  // ProbeDeck 2.13+：每台服务器解析后的显示名（本机自定义名优先，空则站点默认）。旧版本不返回，主题必须兜底。
+  custom_ct_name?: string;
+  custom_cu_name?: string;
+  custom_cm_name?: string;
+  custom_bd_name?: string;
+  node_1_name?: string;
+  node_2_name?: string;
+  node_3_name?: string;
+  node_4_name?: string;
+  [key: `node_${number}_name`]?: string; // node_5_name … node_20_name（扩展点，2.13+）
   probes?: Probe[]; // ProbeDeck 2.13+：本机启用的探测点（最多 24）。外部 CF 主题可忽略，继续读 ping_ct…ping_node_4
   ping?: LatencyWindowPoint[]; // 仅 /api/servers 的列表项返回；三网详情关闭时为空数组
   loss?: LatencyWindowPoint[]; // 仅 /api/servers 的列表项返回；三网详情关闭时为空数组
@@ -1039,9 +1051,43 @@ interface WsMessage {
 }
 ```
 
-延时与丢包字段的展示约定：`false`（或 REST/历史字段缺失时归一化的 `false`）表示节点未配置/未上报/未取样，前端应不显示；`null` 表示该轮明确探测超时/未取到有效 RTT，详情页可显示为 “Timeout/超时”，不应把 `null` 当“无数据”从指标区和图表图例中隐藏。数值 `0`（包括 `0%` 丢包）是有效数据，必须正常显示。自定义节点显示名使用 `node_1_name` 至 `node_4_name`（从 `/api/config` 读取），未配置时使用 `Node 1` 至 `Node 4`。
+延时与丢包字段的展示约定：`false`（或 REST/历史字段缺失时归一化的 `false`）表示节点未配置/未上报/未取样，前端应不显示；`null` 表示该轮明确探测超时/未取到有效 RTT，详情页可显示为 “Timeout/超时”，不应把 `null` 当“无数据”从指标区和图表图例中隐藏。数值 `0`（包括 `0%` 丢包）是有效数据，必须正常显示。自定义节点显示名：2.13+ 直接读 `servers[]` 对象上的 `custom_*_name` / `node_*_name`（含 `node_5_name` … `node_20_name`，本机自定义名优先、空则站点默认）；站点级 `/api/config` 只有前 8 槽名字（`node_1_name` 至 `node_4_name`，未配置时为 `Node 1` … `Node 4`）。
 
 ***
+
+***
+
+## 7. 附：24 探测点适配实战坑（移植记录）
+
+> 以下是为多个第三方主题适配 ProbeDeck 2.13「每台最多 24 探测点」时实际踩过的坑。移植/新写主题时按这份清单自查，可以省掉大部分返工。
+
+### 7.1 数据与名字
+
+1. **并集，不要替换。** 不能写成「有 `probes` 就全用 `probes`」——真实部署里前 8 槽可以「有数值、没 host」（`probes[]` 里只有扩展点），只看 probes 会丢掉前 8 槽。正确做法：按 24 槽顺序并集——槽位在 `probes[]` 里**或**有 `ping_*` / `loss_*` 值就收；前 8 槽无条件保留。
+2. **名字逐级回退。** `probes[].name`（本机自定义名，优先）→ 服务器对象的 `custom_*_name` / `node_*_name`（2.13+ 含扩展点）→ 站点级 `/api/config` 的 `custom_*_name` / `node_1..4_name` → `Node N` 兜底。只读站点 config 会让扩展点显示 `node_5` 这类裸 id 或空白。
+3. **「按节点展示」的位置用该服务器自己的名字。** 首页卡片线路名、切换线路弹窗等要读 `servers[]` 对象上的 `node_*_name`（含扩展点）；站点名字表没有扩展点，否则卡片显示空白 / `Node N`。
+4. **图例键必须对上数据键。** 有的主题内部把 `ping_ct` 记成 `pingCt`、扩展点是 `ping_node_5`——图例按前者生成、数据按后者读取，症状是「图上有线、图例缺项」或反之。
+5. **数字 id 与字符串 id 要映射。** 内部任务 id 常是 1..N，而 `probes[].id` 是 `ct` / `node_1`；名字查找要做 `1→ct`、`5→node_1`、`9→node_5` 的映射，否则图例停在 `Node N`。
+6. **任务 id 用固定槽位编号，不要按可见数量顺序重排。** 顺序编号会随可见槽位数量漂移（同一探测点在不同时间范围 id 不同），导致隐藏状态错位、图例与数据错配。固定映射：`ct=1, cu=2, cm=3, bd=4, node_1=5 … node_20=24`。
+7. **历史行扩展点数值有两种形态**：扁平 `ping_node_5` 字段（新构建）或只在 `extra_probes` JSON（旧构建）。两种都兜底读取。
+8. **实时 WS 样本是扁平字段、不带名字**：`ping_node_5` 可能是字符串数字（`"49"`），未配置槽是 `false`。不要拿 WS 样本对象当 server 对象去解析名字——这是「一有实时数据名字就变回 node_5」的经典原因；合并实时数据时要保留原 server 对象上的名字 / `probes` 字段。
+9. **压缩产物的短名会重名**（`function ji` 可能既是 fetch helper 又是别的函数），定位代码要用唯一长串（如完整 URL 字符串），不要拿短名全库 grep。
+
+### 7.2 实现与构建
+
+10. **别写冻结对象。** 在 `Object.freeze({ct,cu,cm,bd,node_1..4})` 上加 `node_5` 会抛 `Cannot add property node_5, object is not extensible`，整页加载失败。标签表用拷贝。
+11. **静态任务表（模块加载时求值的默认名）要扩到 24 槽**，且名字要能在运行时被覆盖：union 非空就用 union；静态项标记后名字优先取运行时名字表。
+12. **内部模型要保留原始 server 对象。** 列表 fetch 后把 raw server（带名字 / `probes`）缓存起来（如挂 `window.__pdXxxRaw[id]`），因为详情图 / 任务构建函数拿到的往往只是 uuid 字符串，store 里归一化后的对象没有 `probes`。
+13. **helper 插到压缩产物文件头**，不要插进逗号表达式中间（`},me=[...]` 前插 `function` 会 SyntaxError）；改完 `node --check`（ESM 拷成 `.mjs`）。
+14. **实时管线 / 静态任务表可能有多份副本**（同一主题两套 Instance chunk、不同 chunk 各有一份 helper），都要改；改前用浏览器 performance 里实际加载的 chunk 确认哪份在跑。
+15. **隐藏集合的剪枝要防空。** 切时间范围时任务列表会瞬态为空，`useEffect` 剪枝逻辑会把「已隐藏」集合清空（症状：切范围后隐藏的端点又出现）。空列表时直接 return。
+
+### 7.3 验证与缓存
+
+16. **必须用「真实数据形状」复刻验证**：造一台前 8 槽 host 全空但有数值、扩展点带 host / 名字的服务器；只测全槽配 host 的机器会掩盖并集 bug（本地全对、线上全错）。
+17. **必须模拟实时 WS 推送**，只喂历史数据测不出实时路径的 bug（名字覆盖、管线漏槽都是这样漏掉的）。
+18. **主题资源有 1 小时浏览器缓存**，改完强刷（Ctrl+Shift+R）再验；排查「传了没变化」先 `curl` 部署地址比 hash，再查面板内存缓存 / CF 边缘缓存。
+19. **详情页截图注意双图表容器**：负载图与 Ping 图两套 DOM，隐藏的那套宽度为 0，滚动 / 截图选错会误判「图表没画」。
 
 ## 6. 常见问题
 
