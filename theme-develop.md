@@ -91,10 +91,12 @@ npm run build:github-page
 - `index.html`
 - `assets/` 目录
 
-目录结构示例：
+**产物必须直接放在所用分支的根目录**。面板按 `https://raw.githubusercontent.com/<owner>/<repo>/<ref>/index.html` 读取主题：`<ref>` 是**分支名或 commit**（如 `.../main/index.html`、`.../build/index.html`），文件路径直接拼在后面，**没有「自动去找 `dist/` 子目录」这种逻辑**——分支根目录下没有 `index.html` 就会 404 / 白屏。
+
+目录结构示例（这里的 `my-theme/` 指分支根目录，不是仓库里的某个子文件夹）：
 
 ```
-my-theme/
+my-theme/            ← 分支根目录
 ├── index.html
 └── assets/
     ├── app.css
@@ -102,7 +104,9 @@ my-theme/
     └── logo.webp
 ```
 
-`themes.json` 条目示例（`url` 指向主题仓库，`branch` 指向存放构建产物的分支）：
+常见错误：构建工具默认输出到 `dist/`（Vite 等），直接把源码分支填进主题链接——面板拿到的就是仓库根目录（没有 `index.html`），或拿到 Vite 开发模板。**正确做法 = 新建一个只放产物的分支**（惯例命名 `build` / `dist` / `theme-dist`，只提交 `index.html` + `assets/`，不带源码），主题链接与商店条目都指向这个分支。（手动填主题链接时也可以带子目录，如 `tree/main/dist`；但商店条目的 `branch` 字段只能表达分支名、不能带子目录。）
+
+`themes.json` 条目示例（`url` 指向主题仓库，`branch` 指向存放构建产物的分支——**只能是分支名**；商店安装时会把该分支解析成固定 commit 再读取）：
 
 ```json
 {
@@ -165,6 +169,8 @@ my-theme/
 ### 0.5 更新主题后如何生效
 
 面板会缓存主题资源。推了新版本却看不到变化时，优先查缓存，不要先怀疑自己写错。
+
+主题文件的 raw 地址 = `https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<产物内相对路径>`：`<ref>` 是分支名或 commit，与文件路径**直接拼接**，不会自动加 `dist/` 等子目录——产物要放在分支根目录（见 [0.2](#02-主题构建产物约定)）。
 
 | 主题链接形态 | 面板内存缓存 | 浏览器 `Cache-Control` |
 | --- | --- | --- |
@@ -1093,7 +1099,7 @@ interface WsMessage {
 
 **页面白屏 / 资源 404**
 
-面板只服务当前启用主题的 `index.html` 和 `/assets/*`。资源必须放在 `assets/` 下，路径用 `/assets/...` 或相对 `assets/...`。主题链接要指向**构建产物分支**（如 `tree/build`、`tree/dist`），指到源码分支会拿到 Vite 开发模板。
+面板只服务当前启用主题的 `index.html` 和 `/assets/*`。资源必须放在 `assets/` 下，路径用 `/assets/...` 或相对 `assets/...`。主题链接要指向**存放构建产物的分支**——`tree/` 后面是**分支名**（如 `tree/build`、`tree/dist`，这里的 `build` / `dist` 是分支名，不是文件夹路径）；面板按 `raw.githubusercontent.com/<owner>/<repo>/<分支名>/index.html` 直接读取，**产物必须在分支根目录**。指到源码分支会拿到 Vite 开发模板。
 
 **改了主题为什么不生效**
 
