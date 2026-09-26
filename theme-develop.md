@@ -25,6 +25,8 @@
   - [0.4 面板运行时设置（主题适配要求）](#04-面板运行时设置主题适配要求)
   - [0.5 更新主题后如何生效](#05-更新主题后如何生效)
 - [1. 鉴权与 Turnstile 流程](#1-鉴权与-turnstile-流程)
+  - [1.1 鉴权机制](#11-鉴权机制)
+  - [1.2 Turnstile 人机验证流程](#12-turnstile-人机验证流程)
 - **[2. 公开 API](#2-公开-api)**
   - **[2.1 获取站点配置](#21-获取站点配置)**
   - **[2.1.1 保存第三方主题配置](#211-保存第三方主题配置)**
@@ -35,7 +37,11 @@
 - [4. 错误处理](#4-错误处理)
 - [5. 类型定义](#5-类型定义)
 - [6. 常见问题](#6-常见问题)
-- [7. 附：24 探测点适配实战坑（移植记录）](#7-附24-探测点适配实战坑移植记录)
+- [7. 附：踩坑记录与自查清单（移植适配）](#7-附踩坑记录与自查清单移植适配)
+  - [7.1 数据与名字](#71-数据与名字)
+  - [7.2 实现与构建](#72-实现与构建)
+  - [7.3 验证与缓存](#73-验证与缓存)
+  - [7.4 从 CF-Server-Monitor 原版主题搬过来时的差异](#74-从-cf-server-monitor-原版主题搬过来时的差异)
 
 ***
 
@@ -106,6 +112,13 @@ my-theme/            ← 分支根目录
 
 常见错误：构建工具默认输出到 `dist/`（Vite 等），直接把源码分支填进主题链接——面板拿到的就是仓库根目录（没有 `index.html`），或拿到 Vite 开发模板。**正确做法 = 新建一个只放产物的分支**（惯例命名 `build` / `dist` / `theme-dist`，只提交 `index.html` + `assets/`，不带源码），主题链接与商店条目都指向这个分支。（手动填主题链接时也可以带子目录，如 `tree/main/dist`；但商店条目的 `branch` 字段只能表达分支名、不能带子目录。）
 
+**推荐仓库结构：`main` 放源码 + 一个产物分支放构建结果**（`build` / `dist` / `theme-dist`）。建法二选一：
+
+1. 本地：`git checkout --orphan build` → 把 `index.html` 与 `assets/` 放到仓库根目录 → `git add index.html assets && git commit -m "build" && git push origin build`
+2. 网页：在仓库里新建分支 `build`，把构建产物（`index.html` + `assets/`）直接上传到该分支的**根目录**
+
+⚠️ **仓库里只有 `main` 一个分支（源码在根、产物在 `dist/`）时，主题商店读不到主题**——面板只会按 `<分支>/index.html` 直接取文件，**不会**自动去找 `dist/` 子目录。
+
 `themes.json` 条目示例（`url` 指向主题仓库，`branch` 指向存放构建产物的分支——**只能是分支名**；商店安装时会把该分支解析成固定 commit 再读取）：
 
 ```json
@@ -119,7 +132,7 @@ my-theme/            ← 分支根目录
     "en": "Theme description (English)"
   },
   "url": "https://github.com/<owner>/<repo>",
-  "branch": "main",
+  "branch": "build",
   "author": "<作者名>"
 }
 ```
@@ -132,7 +145,7 @@ my-theme/            ← 分支根目录
 - 站点标题、背景图、自定义 `<head>`、自定义脚本由用户后台外观设置控制，主题不要把这些配置写死
 - 在线判定阈值、访客历史范围等面板设置请通过 `/api/config` 动态读取（见 [0.4](#04-面板运行时设置主题适配要求)），不要写死具体数值
 - 主题不可用时应让页面暴露加载错误，不要在主题内静默跳转到其他页面
-- 主题底部需要展示 `Powered by ProbeDeck`，并链接到 [https://github.com/gg949/ProbeDeck/](https://github.com/gg949/ProbeDeck/)；建议同时输出 `/api/config` 返回的 `version`，例如 `Powered by ProbeDeck v2.13.0`
+- 署名规则：页脚不要出现指向其他项目的 `Powered by XXX` / 「适配于 XXX」署名。**从其他主题改来的**（原本带这类署名）必须改成 `Powered by ProbeDeck` 并链接到 [https://github.com/gg949/ProbeDeck/](https://github.com/gg949/ProbeDeck/)（可附 `/api/config` 返回的 `version`，例如 `Powered by ProbeDeck v2.13.0`）；**全新主题**不要额外加署名行，也不要加「移植自 XXX」。「主题源码」链接指向主题自己的仓库即可。
 
 路由约定：
 
@@ -178,6 +191,8 @@ my-theme/            ← 分支根目录
 | 固定 commit（`/tree/<40 位 sha>`） | 86400 秒（内容不可变） | `public, max-age=31536000, immutable`（换 commit 即换 URL，旧缓存不影响新版本） |
 
 正式发布建议用固定 commit 的 `https://github.com/<owner>/<repo>/tree/<commitid>` 链接。换 commit 后 URL 变了，面板立刻拉新文件。
+
+注意：`<commitid>` 必须是**完整 40 位 sha**（如 `a1b2c3d4e5f6…`，`git rev-parse HEAD` 或 GitHub 提交页地址栏可复制）；填 7 位短 sha 会被面板当成「分支名」处理，走分支那行的缓存规则（1 小时）。
 
 分支 URL 最多等 1 小时，或重启面板容器清内存缓存。浏览器请 `Ctrl+Shift+R` 硬刷新。
 
@@ -472,7 +487,7 @@ probes.forEach(p => {
 });
 ```
 
-未适配主题忽略 `probes` 即可，最多仍显示 8 个。扩展点的显示名必须用 `probes[].name`（本机自定义名优先），不要回退成 `NODE_5` / `node_5`。颜色按数组下标循环 24 色（与内置主题 `PING_SLOT_COLORS` 一致）：`#00d4aa #ffb870 #4da6ff #b392f0 #ff7b72 #79c0ff #7ee787 #ffa657 #d2a8ff #ffa198 #56d4dd #f2cc60 #bc8cff #58a6ff #3fb950 #e3b341 #f85149 #a5d6ff #39d353 #ffc680 #2f81f7 #d29922 #db61a2 #6e7681`。未配置的线路值为 `false` 或缺失，主题应不显示该条。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
+未适配主题忽略 `probes` 即可，最多仍显示 8 个。判断一条线路是否启用以 `probes[]` 为准（`host` 非空且不是 `"0"` 的槽位才会出现）；后台把某一行清空后，该槽位的历史数值可能残留到 agent 下一次上报（默认 60 秒一次）之前，**不要按「有数值」把已经删掉的扩展点线路继续画出来**。前 8 槽例外：host 可能来自站点级默认（`probes[]` 里没有），有 `ping_*` 值就该显示。扩展点的显示名必须用 `probes[].name`（本机自定义名优先），不要回退成 `NODE_5` / `node_5`。颜色按数组下标循环 24 色（与内置主题 `PING_SLOT_COLORS` 一致）：`#00d4aa #ffb870 #4da6ff #b392f0 #ff7b72 #79c0ff #7ee787 #ffa657 #d2a8ff #ffa198 #56d4dd #f2cc60 #bc8cff #58a6ff #3fb950 #e3b341 #f85149 #a5d6ff #39d353 #ffc680 #2f81f7 #d29922 #db61a2 #6e7681`。未配置的线路值为 `false` 或缺失，主题应不显示该条。只有后台开启三网详情（`sysConfig.show_three_net_details === true`）时，后端才会从历史库最近 2 小时抽取这些窗口数据；关闭时为节省服务端资源，数组为空。
 
 **示例**：
 
@@ -746,7 +761,10 @@ Headers: Upgrade: websocket, Connection: Upgrade
 | `subscribed` | S → C | `{ type: "subscribed", ts: number, subscribed: string, count: number }` |
 | `ping` | C → S | `{ type: "ping", ts: number }` |
 | `pong` | 双向 | `{ type: "pong", ts: number }` |
+| `error` | S → C | `{ type: "error", ts: number, error: string, code: number }` |
 | `batchUpdate` | S → C | `{ type: "batchUpdate", ts: number, updates: Array<{serverId, samples: Array<{ts, data?: Partial<Server>, payload?: Partial<Server>, metrics?: Partial<Server>}>}> }` |
+
+订阅参数非法（如 `ids` 格式错误）时，服务端会**先发一条 `error` 再关闭连接**（close code `1008`）——主题把 `msg.error` 打出来即可定位原因。服务端还可能发出 `ack` / `config` 消息，那是**探针（Agent）连接**的上报应答与配置下发，主题连接不会收到，忽略即可。
 
 `batchUpdate.samples[]` 的指标对象可能出现在 `data`、`payload` 或 `metrics` 中，主题应按 `sample.data || sample.payload || sample.metrics` 读取。Ping / 丢包数值为扁平字段 `ping_ct` … `ping_node_20` / `loss_*`（2.13+ 扩展点同样推送；扩展点值可能是字符串数字如 `"49"`，按数字解析要容错；未配置槽为 `false`，超时为 `null`）。该对象是增量字段：批次内的高频采样点主要包含 CPU、内存、Swap、网速和时间字段；每次上报的最后一个样本会额外携带本次完整报告状态，用于同步磁盘容量、磁盘 IO、GPU、进程、连接数、探针、Ping/丢包等报告级数据。`disk` 缺失、格式无效或所有子字段全为 0 时，WebSocket 样本不会携带 `disk`。
 
@@ -867,10 +885,12 @@ interface LatencyWindowPoint {
 interface Probe {
   id: string;          // ct / cu / cm / bd / node_1 … node_20
   name: string;        // 该服务器最终显示名（本机覆盖优先，空则站点默认）
-  host: string;
+  host: string;        // 该机配置的探测地址；"0"=显式禁用；空串=该机未单独配置（前 8 槽此时可能继承站点级默认地址）
   ping: number | null | false;
   loss: number | null | false;
 }
+
+> **哪些槽位算「启用」，只看 `probes[]`**：只有 `host` 非空且不是 `"0"` 的槽位才会出现在 `probes[]` 里，所以 `probes[]` 是「这条线路在这台机器上是否启用」的唯一权威来源。`servers[]` 上同时保留原始 host 字段（`custom_ct` … `custom_bd`、`node_1` … `node_20`）：空串 = 该机未单独配置（前 8 槽此时可能继承站点级默认地址，公开接口看不到真实 host，只能靠有没有 `ping_*` 值判断），`"0"` = 显式禁用（不探测、也不该显示）。
 
 interface Server {
   id: string;
@@ -1063,38 +1083,6 @@ interface WsMessage {
 
 ***
 
-## 7. 附：24 探测点适配实战坑（移植记录）
-
-> 以下是为多个第三方主题适配 ProbeDeck 2.13「每台最多 24 探测点」时实际踩过的坑。移植/新写主题时按这份清单自查，可以省掉大部分返工。
-
-### 7.1 数据与名字
-
-1. **并集，不要替换。** 不能写成「有 `probes` 就全用 `probes`」——真实部署里前 8 槽可以「有数值、没 host」（`probes[]` 里只有扩展点），只看 probes 会丢掉前 8 槽。正确做法：按 24 槽顺序并集——槽位在 `probes[]` 里**或**有 `ping_*` / `loss_*` 值就收；前 8 槽无条件保留。
-2. **名字逐级回退。** `probes[].name`（本机自定义名，优先）→ 服务器对象的 `custom_*_name` / `node_*_name`（2.13+ 含扩展点）→ 站点级 `/api/config` 的 `custom_*_name` / `node_1..4_name` → `Node N` 兜底。只读站点 config 会让扩展点显示 `node_5` 这类裸 id 或空白。
-3. **「按节点展示」的位置用该服务器自己的名字。** 首页卡片线路名、切换线路弹窗等要读 `servers[]` 对象上的 `node_*_name`（含扩展点）；站点名字表没有扩展点，否则卡片显示空白 / `Node N`。
-4. **图例键必须对上数据键。** 有的主题内部把 `ping_ct` 记成 `pingCt`、扩展点是 `ping_node_5`——图例按前者生成、数据按后者读取，症状是「图上有线、图例缺项」或反之。
-5. **数字 id 与字符串 id 要映射。** 内部任务 id 常是 1..N，而 `probes[].id` 是 `ct` / `node_1`；名字查找要做 `1→ct`、`5→node_1`、`9→node_5` 的映射，否则图例停在 `Node N`。
-6. **任务 id 用固定槽位编号，不要按可见数量顺序重排。** 顺序编号会随可见槽位数量漂移（同一探测点在不同时间范围 id 不同），导致隐藏状态错位、图例与数据错配。固定映射：`ct=1, cu=2, cm=3, bd=4, node_1=5 … node_20=24`。
-7. **历史行扩展点数值有两种形态**：扁平 `ping_node_5` 字段（新构建）或只在 `extra_probes` JSON（旧构建）。两种都兜底读取。
-8. **实时 WS 样本是扁平字段、不带名字**：`ping_node_5` 可能是字符串数字（`"49"`），未配置槽是 `false`。不要拿 WS 样本对象当 server 对象去解析名字——这是「一有实时数据名字就变回 node_5」的经典原因；合并实时数据时要保留原 server 对象上的名字 / `probes` 字段。
-9. **压缩产物的短名会重名**（`function ji` 可能既是 fetch helper 又是别的函数），定位代码要用唯一长串（如完整 URL 字符串），不要拿短名全库 grep。
-
-### 7.2 实现与构建
-
-10. **别写冻结对象。** 在 `Object.freeze({ct,cu,cm,bd,node_1..4})` 上加 `node_5` 会抛 `Cannot add property node_5, object is not extensible`，整页加载失败。标签表用拷贝。
-11. **静态任务表（模块加载时求值的默认名）要扩到 24 槽**，且名字要能在运行时被覆盖：union 非空就用 union；静态项标记后名字优先取运行时名字表。
-12. **内部模型要保留原始 server 对象。** 列表 fetch 后把 raw server（带名字 / `probes`）缓存起来（如挂 `window.__pdXxxRaw[id]`），因为详情图 / 任务构建函数拿到的往往只是 uuid 字符串，store 里归一化后的对象没有 `probes`。
-13. **helper 插到压缩产物文件头**，不要插进逗号表达式中间（`},me=[...]` 前插 `function` 会 SyntaxError）；改完 `node --check`（ESM 拷成 `.mjs`）。
-14. **实时管线 / 静态任务表可能有多份副本**（同一主题两套 Instance chunk、不同 chunk 各有一份 helper），都要改；改前用浏览器 performance 里实际加载的 chunk 确认哪份在跑。
-15. **隐藏集合的剪枝要防空。** 切时间范围时任务列表会瞬态为空，`useEffect` 剪枝逻辑会把「已隐藏」集合清空（症状：切范围后隐藏的端点又出现）。空列表时直接 return。
-
-### 7.3 验证与缓存
-
-16. **必须用「真实数据形状」复刻验证**：造一台前 8 槽 host 全空但有数值、扩展点带 host / 名字的服务器；只测全槽配 host 的机器会掩盖并集 bug（本地全对、线上全错）。
-17. **必须模拟实时 WS 推送**，只喂历史数据测不出实时路径的 bug（名字覆盖、管线漏槽都是这样漏掉的）。
-18. **主题资源有 1 小时浏览器缓存**，改完强刷（Ctrl+Shift+R）再验；排查「传了没变化」先 `curl` 部署地址比 hash，再查面板内存缓存 / CF 边缘缓存。
-19. **详情页截图注意双图表容器**：负载图与 Ping 图两套 DOM，隐藏的那套宽度为 0，滚动 / 截图选错会误判「图表没画」。
-
 ## 6. 常见问题
 
 **页面白屏 / 资源 404**
@@ -1113,3 +1101,50 @@ interface WsMessage {
 
 详情页用 `GET /api/server?id=<id>` + `wss://…/api/ws?subscribe=<id>`。不要先拉 `/api/servers` 再前端过滤。
 
+***
+
+## 7. 附：踩坑记录与自查清单（移植适配）
+
+> **这一节是「踩坑记录」，不是必读规则**——全新开发主题只需要看 0–6 节。
+>
+> 如果你是在已有主题的基础上移植 / 改造（包括从 CF-Server-Monitor 原版主题、其他监控面板的主题搬过来的情况），按这份清单逐条自查可以省掉大部分返工：下面每条都是把第三方主题接到 ProbeDeck 上时实际踩过的坑，写清了症状和正确做法。
+
+### 7.1 数据与名字
+
+1. **前 8 槽用并集，扩展槽只认 `probes[]`。** 两条相反的坑要同时避开：
+   - 不能写成「有 `probes` 就全用 `probes`」——真实部署里前 8 槽可以「有数值、没 host」（host 来自站点级默认，公开接口看不到），只看 `probes[]` 会丢掉前 8 槽。
+   - 也不能写成「有 `ping_*` / `loss_*` 值就收」——扩展槽（`node_5` … `node_20`）的 host 被清空（后台删掉那一行）后，历史数值还会残留一小段时间（agent 下一次上报前，默认 60 秒一次），按「有值就收」会把已经删掉的线路继续画出来，等数据被清掉又自己消失。
+
+   正确做法按槽位分开：**前 8 槽**（`ct`/`cu`/`cm`/`bd`/`node_1..4`）在 `probes[]` 里有**或**有 `ping_*` / `loss_*` 值就收（`false` 除外，host 为 `"0"` 的不画）；**扩展槽**（`node_5` … `node_20`）**只认 `probes[]`**——不在 `probes[]` 里就当作未配置，即使还有残留数值也不画。
+2. **名字逐级回退。** `probes[].name`（本机自定义名，优先）→ 服务器对象的 `custom_*_name` / `node_*_name`（2.13+ 含扩展点）→ 站点级 `/api/config` 的 `custom_*_name` / `node_1..4_name` → `Node N` 兜底。只读站点 config 会让扩展点显示 `node_5` 这类裸 id 或空白。
+3. **「按节点展示」的位置用该服务器自己的名字。** 首页卡片线路名、切换线路弹窗等要读 `servers[]` 对象上的 `node_*_name`（含扩展点）；站点名字表没有扩展点，否则卡片显示空白 / `Node N`。
+4. **图例、颜色、图表 series 都要覆盖到 24 槽（三个不同的漏法）。** ① **键要对齐**：有的主题内部把 `ping_ct` 记成 `pingCt`、扩展点是 `ping_node_5`——图例按前者生成、数据按后者读取，症状是「图上有线、图例缺项」或反之。② **颜色表要扩到 24 个**：主题自带写死的 8 色表时，扩展点取不到颜色，症状是「名字对了、但那条线没颜色 / 颜色重复」——按第 4 节的 24 色表按下标循环。③ **图表 series 也要按并集生成**：series 只按旧 8 字段建时，扩展点在详情图里根本没有线（症状是「名字对了、图表缺」）——series、图例、颜色三者都按「前 8 槽 ∪ `probes[]`」的同一份列表生成，才不会再漏。
+5. **数字 id 与字符串 id 要映射。** 内部任务 id 常是 1..N，而 `probes[].id` 是 `ct` / `node_1`；名字查找要做 `1→ct`、`5→node_1`、`9→node_5` 的映射，否则图例停在 `Node N`。
+6. **任务 id 用固定槽位编号，不要按可见数量顺序重排。** 顺序编号会随可见槽位数量漂移（同一探测点在不同时间范围 id 不同），导致隐藏状态错位、图例与数据错配。固定映射：`ct=1, cu=2, cm=3, bd=4, node_1=5 … node_20=24`。
+7. **历史行扩展点数值有两种形态**：扁平 `ping_node_5` 字段（新构建）或只在 `extra_probes` JSON（旧构建）。两种都兜底读取。
+8. **实时 WS 样本是扁平字段、不带名字**：`ping_node_5` 可能是字符串数字（`"49"`），未配置槽是 `false`。不要拿 WS 样本对象当 server 对象去解析名字——这是「一有实时数据名字就变回 node_5」的经典原因；合并实时数据时要保留原 server 对象上的名字 / `probes` 字段。
+9. **压缩产物的短名会重名**（`function ji` 可能既是 fetch helper 又是别的函数），定位代码要用唯一长串（如完整 URL 字符串），不要拿短名全库 grep。
+
+### 7.2 实现与构建
+
+10. **别写冻结对象。** 在 `Object.freeze({ct,cu,cm,bd,node_1..4})` 上加 `node_5` 会抛 `Cannot add property node_5, object is not extensible`，整页加载失败。标签表用拷贝。
+11. **静态任务表（模块加载时求值的默认名）要扩到 24 槽**，且名字要能在运行时被覆盖：union 非空就用 union；静态项标记后名字优先取运行时名字表。
+12. **内部模型要保留原始 server 对象。** 列表 fetch 后把 raw server（带名字 / `probes`）缓存起来（如挂 `window.__pdXxxRaw[id]`），因为详情图 / 任务构建函数拿到的往往只是 uuid 字符串，store 里归一化后的对象没有 `probes`。
+13. **helper 插到压缩产物文件头**，不要插进逗号表达式中间（`},me=[...]` 前插 `function` 会 SyntaxError）；改完 `node --check`（ESM 拷成 `.mjs`）。
+14. **实时管线 / 静态任务表可能有多份副本**（同一主题两套 Instance chunk、不同 chunk 各有一份 helper），都要改；改前用浏览器 performance 里实际加载的 chunk 确认哪份在跑。
+15. **隐藏集合的剪枝要防空。** 切时间范围时任务列表会瞬态为空，`useEffect` 剪枝逻辑会把「已隐藏」集合清空（症状：切范围后隐藏的端点又出现）。空列表时直接 return。
+
+### 7.3 验证与缓存
+
+16. **必须模拟实时 WS 推送**，只喂历史数据测不出实时路径的 bug（名字覆盖、管线漏槽都是这样漏掉的）。
+17. **主题资源有浏览器缓存**：分支引用 1 小时、固定 commit 为 `immutable`（见 [0.5](#05-更新主题后如何生效)），改完强刷（Ctrl+Shift+R）再验；排查「传了没变化」先 `curl` 部署地址比 hash，再查面板内存缓存 / CF 边缘缓存。
+18. **详情页截图注意双图表容器**：负载图与 Ping 图两套 DOM，隐藏的那套宽度为 0，滚动 / 截图选错会误判「图表没画」。
+
+### 7.4 从 CF-Server-Monitor 原版主题搬过来时的差异
+
+> 为原版（CF Workers 版）写的主题接到 ProbeDeck 上**不会少数据**（公开 API 是上游超集），但下面 4 处会表现出差异，移植时逐条确认：
+
+1. **历史范围**：原版上限 168 小时（请求 336 / 720 直接 400），访客写死「超过 24 小时要登录」；ProbeDeck 支持到 720 小时，访客范围由面板设置 `public_history_hours` 决定。原版主题的时间档位写死在产物里（通常只到 7 天），要支持 14 / 30 天必须改档位表。
+2. **在线判定**：原版硬编码 300 秒；ProbeDeck 由面板设置（`/api/config` 的 `online_threshold_seconds`，默认 300、可调 60–3600）——主题写死的话，页面上的在线状态可能与面板不一致。
+3. **访客字段**：原版只在前端隐藏价格 / 到期 / 流量，接口照发；ProbeDeck 在后台关闭对应开关时**服务端直接剥离字段**（字段可能整个不存在）——主题必须兼容缺失，不能假设它一定在。
+4. **`/api/config` 字段**：原版有 `github_oauth_enabled`（ProbeDeck 没有）；ProbeDeck 多出 `online_threshold_seconds`、`public_history_hours`（原版主题忽略即可）。其余接口、WebSocket 消息、鉴权方式与上游完全一致。
