@@ -335,7 +335,13 @@ async function getCachedFrontendSubscriberCount(env) {
   return count;
 }
 
-function hasResourceAlertNotificationTarget(settings = {}) {
+// 与 notification.js 的 hasNotificationTarget 保持一致：自定义脚本优先。
+// v2.13.1 修复：此前只认 Webhook/TG Token，导致「只配脚本 + 无人看面板」时
+// 走了 latestReportOnly 分支、跳过资源告警样本缓存，告警永不触发。
+export function hasResourceAlertNotificationTarget(settings = {}) {
+  if (String(settings.notification_custom_script || '').trim().length > 0) {
+    return true;
+  }
   if (normalizeBooleanSetting(settings.notification_webhook_enabled) === 'true') {
     return String(settings.notification_webhook_url || '').trim().length > 0;
   }
