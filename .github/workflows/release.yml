@@ -42,6 +42,17 @@ jobs:
           git tag "$VERSION"
           git push origin "$VERSION"
 
+      - name: 生成镜像说明括注（正式版 / 内测版）
+        id: mirror_note
+        run: |
+          # 判定条件与下方 make_latest 保持一致：版本号含 beta / rc（不区分大小写）= 内测版镜像
+          version_lc="${VERSION,,}"
+          if [[ "$version_lc" == *beta* || "$version_lc" == *rc* ]]; then
+            echo 'note=（内测版，不影响 `latest`）' >> "$GITHUB_OUTPUT"
+          else
+            echo 'note=（`latest` 同源）' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -70,7 +81,7 @@ jobs:
 
             ---
 
-            - 镜像地址：`ghcr.io/gg949/probedeck:${{ env.VERSION }}`（`latest` 同源）
+            - 镜像地址：`ghcr.io/gg949/probedeck:${{ env.VERSION }}`${{ steps.mirror_note.outputs.note }}
             - 初始密码：`docker logs probedeck 2>&1 | grep API_SECRET`
             - 完整变更记录：https://github.com/gg949/ProbeDeck/commits/${{ env.VERSION }}
             - 完整文档：[README](https://github.com/gg949/ProbeDeck/blob/main/README.md)

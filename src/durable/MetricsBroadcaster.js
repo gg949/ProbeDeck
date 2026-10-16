@@ -1475,12 +1475,11 @@ export class MetricsBroadcaster {
       } catch (_) {
       }
 
+      // 空名单=不发跨域头（默认拒绝），不要恢复 `*` 兜底
       const responseHeaders = new Headers();
       if (origin && allowedOrigins.length > 0) {
         responseHeaders.set('Access-Control-Allow-Origin', origin);
         responseHeaders.set('Access-Control-Allow-Credentials', 'true');
-      } else if (allowedOrigins.length === 0) {
-        responseHeaders.set('Access-Control-Allow-Origin', '*');
       }
 
       return new Response(null, {

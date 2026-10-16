@@ -217,7 +217,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 - 当请求 `Origin` 命中白名单 → 响应带 `Access-Control-Allow-Origin: <origin>`、`Access-Control-Allow-Credentials: true`、`Vary: Origin`。
 - 预检请求 `OPTIONS` → 直接返回 `204`，并回显 `Access-Control-Request-Method` / `Access-Control-Request-Headers`，缓存 86400 秒。
 - 未配置或未命中 → 不会下发 CORS Header，浏览器侧会被同源策略拦截。
-- WebSocket Durable Object 是例外：未配置白名单时握手响应使用 `Access-Control-Allow-Origin: *`；配置了非空白名单后才按 `Origin` 拒绝不匹配的连接。
+- WebSocket Durable Object 是例外：白名单命中 `Origin` 时握手响应带 `Access-Control-Allow-Origin: <origin>` + `Access-Control-Allow-Credentials: true`；**未配置白名单时不下发任何 CORS 头**（早期版本曾回退 `Access-Control-Allow-Origin: *`，已移除，勿恢复）。配置了非空白名单后，`Origin` 不匹配的连接直接 `403` 拒绝。
 
 ***
 
