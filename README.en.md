@@ -10,7 +10,7 @@
 
 **Bring your server-status panel into your own Docker** — single-container deploy · 100% local data · report interval down to 1 second · runs great on a 1C1G VPS
 
-[🔗 Live Demo](https://probedeck.guoba.cc.cd/) · [🚀 Quick Start](#quick-start) · [💾 Data Backup & Migration](#data--backup) · [🐳 Probe Docker Deploy](#deploy-the-probe-with-docker-unraid-synology-1panel) · [🔄 Migrate from Cloudflare](#migrating-from-cloudflare) · [🎨 Theme Development](theme-develop.md) · [📖 API Reference](API.md) · [☕ Support](#support-the-project)
+[🚀 Quick Start](#quick-start) · [💾 Data Backup & Migration](#data--backup) · [🐳 Probe Docker Deploy](#deploy-the-probe-with-docker-unraid-synology-1panel) · [🔄 Migrate from Cloudflare](#migrating-from-cloudflare) · [🎨 Theme Development](theme-develop.md) · [📖 API Reference](API.md) · [☕ Support](#support-the-project)
 
 **English | [中文](README.md)**
 

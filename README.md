@@ -10,7 +10,7 @@
 
 **把探针面板搬进你自己的 Docker** — 单容器部署 · 数据全本地 · 上报最低 1 秒 · 1C1G 就能跑
 
-[🔗 在线演示](https://probedeck.guoba.cc.cd/) · [🚀 快速开始](#快速开始) · [💾 数据备份与迁移](#数据与备份) · [🐳 探针 Docker 部署](#用-docker-部署探针unraid--群晖--1panel) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md) · [☕ 支持项目](#支持项目)
+[🚀 快速开始](#快速开始) · [💾 数据备份与迁移](#数据与备份) · [🐳 探针 Docker 部署](#用-docker-部署探针unraid--群晖--1panel) · [🔄 从 CF 迁移](#从-cloudflare-原版迁移数据) · [🎨 主题开发](theme-develop.md) · [📖 API 文档](API.md) · [☕ 支持项目](#支持项目)
 
 **[English](README.en.md) | 中文**
 
