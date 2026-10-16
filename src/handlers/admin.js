@@ -9,7 +9,7 @@ import { addServerColumns } from '../database/updateDatabase.js';
 import { clearResourceAlertState, sendNotification } from '../services/notification.js';
 import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../database/indexOptimization.js';
 import { isValidTrafficCorrection, normalizeConnectionMode, normalizePingMode, normalizeWssReportInterval, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
-import { normalizeProbeSlotFields, serializeExtraHosts, serializeExtraNames } from '../utils/probes.js';
+import { extraHostsFromJson, normalizeProbeSlotFields, serializeExtraHosts, serializeExtraNames } from '../utils/probes.js';
 import { scheduleAgentConfigChanged, scheduleAgentReportModeChanged } from '../utils/agentConfigNotify.js';
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../utils/serverBilling.js';
 import { THEME_PREVIEW_AUTH_TTL_SECONDS } from '../utils/config.js';
@@ -795,13 +795,106 @@ async function handleSendTestNotificationAction({ data }) {
   }
 }
 
+// ── 数据库运维（数据库体积 / VACUUM / 常规备份 / 完整性检查，VPS 版专属）──
+// 实现放在 server/db-maintenance.js，由 server/index.js 注入 env.dbMaintenance；
+// CF 版没有该注入 → 返回 501 dbMaintenanceUnsupported（前端隐藏入口）。
+// 所有动作都在 handleAdminAPI 的 checkAuth 闸门之后，未登录一律 401。
+const DB_MAINTENANCE_ERROR_DETAIL_MAX = 300;
+
+const DB_MAINTENANCE_ERROR_CODES = {
+  db_stats: 'dbStatsFailed',
+  db_vacuum: 'dbVacuumFailed',
+  db_backup: 'dbBackupFailed',
+  db_integrity_check: 'dbIntegrityCheckFailed'
+};
+
+function createDbMaintenanceResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function createDbMaintenanceErrorResponse(error, status, detail = '') {
+  const message = String(detail || '').trim().slice(0, DB_MAINTENANCE_ERROR_DETAIL_MAX);
+  return createDbMaintenanceResponse({
+    success: false,
+    error,
+    code: status,
+    ...(message ? { message } : {})
+  }, status);
+}
+
+function getDbMaintenance(env) {
+  const maintenance = env && env.dbMaintenance;
+  return maintenance && typeof maintenance.stats === 'function' ? maintenance : null;
+}
+
+async function handleDbMaintenanceAction({ env, data }) {
+  const action = data.action;
+  const maintenance = getDbMaintenance(env);
+  if (!maintenance) {
+    return createDbMaintenanceErrorResponse('dbMaintenanceUnsupported', 501);
+  }
+
+  try {
+    if (action === 'db_stats') {
+      return createSuccessResponse({ success: true, stats: await maintenance.stats() });
+    }
+    if (action === 'db_vacuum') {
+      const result = await maintenance.vacuum();
+      return createSuccessResponse({
+        success: true,
+        freed_bytes: result.freed_bytes,
+        duration_ms: result.duration_ms,
+        stats: result.stats
+      });
+    }
+    if (action === 'db_backup') {
+      const result = await maintenance.backup();
+      return createSuccessResponse({
+        success: true,
+        backup: result.backup,
+        removed: result.removed,
+        stats: result.stats
+      });
+    }
+    if (action === 'db_integrity_check') {
+      const result = await maintenance.integrityCheck();
+      return createSuccessResponse({
+        success: true,
+        ok: result.ok,
+        problems: result.problems,
+        problems_total: result.problems_total,
+        truncated: result.truncated,
+        duration_ms: result.duration_ms
+      });
+    }
+    return createBadRequestResponse('unknownAction');
+  } catch (e) {
+    if (e && e.code === 'dbMaintenanceBusy') {
+      return createDbMaintenanceErrorResponse('dbMaintenanceBusy', 409);
+    }
+    console.error(`[db-maintenance] ${action} 失败:`, e?.message || e);
+    return createDbMaintenanceErrorResponse(
+      DB_MAINTENANCE_ERROR_CODES[action] || 'dbMaintenanceFailed',
+      500,
+      e?.message || String(e)
+    );
+  }
+}
+
 const AUTHENTICATED_ADMIN_ACTION_HANDLERS = {
   get_settings: handleGetSettingsAction,
   start_theme_preview: handleStartThemePreviewAction,
   save_theme_options: handleSaveThemeOptionsAction,
   list: handleListAction,
   d1_usage: handleD1UsageAction,
-  send_test_notification: handleSendTestNotificationAction
+  send_test_notification: handleSendTestNotificationAction,
+  db_stats: handleDbMaintenanceAction,
+  db_vacuum: handleDbMaintenanceAction,
+  db_backup: handleDbMaintenanceAction,
+  db_integrity_check: handleDbMaintenanceAction
 };
 
 export async function handleAdminAPI(request, env, sys, loadFullSettings = null, ctx = null) {
@@ -1157,6 +1250,20 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         currency,
         expire_date
       });
+
+      // 扩展槽删除语义（v2.13.2-beta1 批次第 4 项）：清空/删除扩展槽（node_5 … node_20）
+      // 时写入 '0'（显式禁用）而不是空串——主题端按「host === '0'」判定禁用，能在探针下次
+      // 上报覆盖残留延迟数值之前就停止绘制已删除的线路。'' 只留给「从未配置」。
+      // 前 8 槽（custom_ct … node_4）仍是独立列，'' 有「继承站点默认」含义，绝不能写 '0'。
+      // 需要旧值才能区分「删掉了一条已配置的线路」与「从未配置」，故先读一次旧 JSON；
+      // 读取失败不阻断保存（退化为旧行为：扩展槽按未配置处理）。
+      let previousExtraHosts = {};
+      try {
+        const previousProbeRow = await env.DB.prepare('SELECT extra_probe_hosts FROM servers WHERE id = ?').bind(id).first();
+        previousExtraHosts = extraHostsFromJson(previousProbeRow?.extra_probe_hosts);
+      } catch (e) {
+        console.warn('读取旧探测点配置失败（扩展槽按未配置处理）:', e?.message || e);
+      }
       
       try {
         await env.DB.prepare(`
@@ -1192,7 +1299,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
           pingNodes.values.node_2 ?? null,
           pingNodes.values.node_3 ?? null,
           pingNodes.values.node_4 ?? null,
-          serializeExtraHosts(pingNodes.values),
+          serializeExtraHosts(pingNodes.values, previousExtraHosts),
           serializeExtraNames(pingNodes.values),
           safeRx,
           safeTx,

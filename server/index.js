@@ -26,6 +26,7 @@ import { createD1Database } from './d1.js';
 import { createAssetsService } from './assets.js';
 import { createBroadcasterNamespace } from './durable.js';
 import { createGeoIpService, extractClientIp } from './geoip.js';
+import { createDbMaintenance } from './db-maintenance.js';
 
 // ── 1) 安装运行时兼容层（必须在业务代码创建 Response/WebSocket 之前）──────
 installRuntimeShims();
@@ -97,6 +98,10 @@ const env = {
   API_BASE: process.env.API_BASE || '',
   DEBUG: process.env.DEBUG || '',
   HISTORY_RETENTION_DAYS: process.env.HISTORY_RETENTION_DAYS || '',
+  // 上报通道服务端防护（见 src/utils/reportGuard.js）：同一服务器两次历史落库的最小间隔 /
+  // /update 未认证连接的寿命。留空 = 内置默认（500ms / 60s），0 = 关闭。
+  REPORT_MIN_WRITE_INTERVAL_MS: process.env.REPORT_MIN_WRITE_INTERVAL_MS || '',
+  AGENT_WS_AUTH_TIMEOUT_MS: process.env.AGENT_WS_AUTH_TIMEOUT_MS || '',
   TURNSTILE_SECRET_KEY: process.env.TURNSTILE_SECRET_KEY || '',
   // 绑定
   DB: createD1Database(path.join(DATA_DIR, 'monitor.db')),
@@ -105,6 +110,10 @@ const env = {
 env.METRICS_BROADCASTER = createBroadcasterNamespace(env, {
   storageFile: path.join(DATA_DIR, 'do-storage.json'),
 });
+// 数据库运维能力（数据库体积 / VACUUM / 常规备份 / 完整性检查，见 db-maintenance.js）。
+// 管理员动作 db_stats / db_vacuum / db_backup / db_integrity_check 通过 env.dbMaintenance
+// 调用；CF 版没有该注入 → 对应接口返回 501 dbMaintenanceUnsupported（前端隐藏入口）。
+env.dbMaintenance = createDbMaintenance({ dataDir: DATA_DIR, db: env.DB });
 
 // ── 探针地区识别（MaxMind GeoLite2 / ipinfo.io，复刻 CF 的 cf-ipcountry）──
 const geoip = await createGeoIpService({

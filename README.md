@@ -332,6 +332,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/gg949/Nginx-X/main/insta
 | `PORT` | 容器内监听端口 | `17986` |
 | `API_USER_NAME` | 管理面板用户名 | `admin` |
 | `HISTORY_RETENTION_DAYS` | 历史数据保留天数（也可以在面板里直接设置，面板优先） | `14` |
+| `REPORT_MIN_WRITE_INTERVAL_MS` | 同一台服务器两次历史落库的最小间隔（毫秒）。超频上报只丢弃历史写入，最新状态与实时推送照常；`0` = 关闭 | `500` |
+| `AGENT_WS_AUTH_TIMEOUT_MS` | 探针 WSS 连接的寿命（毫秒）：超时仍没有完成首次有效鉴权即主动断开匿名连接；`0` = 关闭 | `60000` |
 | `GEOIP_PROVIDER` | 地区识别：`maxmind` / `ipinfo` / `off` | `maxmind` |
 | `GEOIP_MMDB_PATH` | 自定义 GeoLite2 数据库路径 | 空 |
 | `IPINFO_TOKEN` | ipinfo.io token（可选） | 空 |

@@ -338,6 +338,8 @@ All optional — the app starts with zero configuration.
 | `PORT` | Listening port inside the container | `17986` |
 | `API_USER_NAME` | Admin panel username | `admin` |
 | `HISTORY_RETENTION_DAYS` | History retention in days (also settable in the panel; panel wins) | `14` |
+| `REPORT_MIN_WRITE_INTERVAL_MS` | Minimum interval between two history writes for one server (ms). Over-frequency reports skip the history write only — latest state and realtime push continue; `0` = off | `500` |
+| `AGENT_WS_AUTH_TIMEOUT_MS` | Lifetime of a probe WebSocket connection (ms): anonymous connections that never complete a first successful authentication are closed; `0` = off | `60000` |
 | `GEOIP_PROVIDER` | Region detection: `maxmind` / `ipinfo` / `off` | `maxmind` |
 | `GEOIP_MMDB_PATH` | Path to a custom GeoLite2 database | empty |
 | `IPINFO_TOKEN` | ipinfo.io token (optional) | empty |

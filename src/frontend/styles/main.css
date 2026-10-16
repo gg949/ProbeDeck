@@ -2862,6 +2862,37 @@ body::before {
     text-decoration: underline;
 }
 
+/* 数据库维护（数据库体积 / VACUUM / 备份 / 完整性检查） */
+.db-maintenance-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.db-stat-value {
+    font-weight: 600;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+
+.db-backup-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    color: var(--text-secondary);
+}
+
+.db-backup-list li {
+    padding: 2px 0;
+}
+
+.db-backup-name {
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
 .wss-schedule {
     margin: 0 0 16px;
     padding: 14px 0 16px;

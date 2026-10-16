@@ -1,5 +1,5 @@
 // 当前 Worker 版本：/api/config 返回给前端与主题，用于页脚和升级提示。
-export const CURRENT_VERSION = '2.13.1';
+export const CURRENT_VERSION = '2.13.2-beta1';
 
 // 站点设置默认值与缓存策略。
 export const DEFAULT_SITE_TITLE = 'ProbeDeck';
@@ -30,6 +30,13 @@ export const UPDATE_FRONTEND_SUBSCRIBER_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 export const AGENT_DEFAULT_HISTORY_WRITE_INTERVAL_MS = 60 * 1000;
 export const AGENT_SERVER_DETAIL_TTL_MS = 120 * 1000;
 export const AGENT_MIN_IDLE_WSS_REPORT_INTERVAL_MS = 60 * 1000;
+
+// 上报通道服务端防护默认值（见 utils/reportGuard.js；env REPORT_MIN_WRITE_INTERVAL_MS /
+// AGENT_WS_AUTH_TIMEOUT_MS 可覆盖，0 = 关闭）：
+// - 同一服务器两次历史落库的最小间隔：正常探针最密 1s 一报，500ms = 2 倍余量；
+// - /update 未认证连接寿命：探针连上后 1–5s 内必上报，60s 余量充足。
+export const REPORT_MIN_WRITE_INTERVAL_MS_DEFAULT = 500;
+export const AGENT_WS_AUTH_TIMEOUT_MS_DEFAULT = 60 * 1000;
 
 // 通知发送与资源告警批处理：限制外部请求重试、单次规则评估规模和通知正文长度。
 export const NOTIFICATION_MAX_RETRIES = 3;

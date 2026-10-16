@@ -35,6 +35,11 @@ import {
   UPDATE_REALTIME_BATCH_WINDOW_MS,
   UPDATE_RESOURCE_ALERT_BATCH_WINDOW_MS
 } from '../utils/config.js';
+import {
+  releaseReportHistoryWrite,
+  resolveReportMinWriteIntervalMs,
+  tryReserveReportHistoryWrite
+} from '../utils/reportGuard.js';
 
 // 将最新一次上报打包成前端可直接消费的 "当前状态" 对象
 // 与 /api/server 和 /api/servers 返回的字段保持一致，便于页面直接合并
@@ -605,15 +610,28 @@ export async function handleUpdate(request, env, ctx) {
     const latestSample = samples[samples.length - 1];
     const latestMetrics = getReportMetrics(data, latestSample);
     const historyMetrics = getHistoryMetrics(data, samples, latestSample);
-    await saveMetricsHistory(
-      env.DB,
-      id,
-      historyPartitionId,
-      historyMetrics,
-      regionCode,
-      latestSample.ts,
-      agentVersion
-    );
+
+    // 落库频率闸：同一服务器两次历史落库的最小间隔（默认 500ms，env
+    // REPORT_MIN_WRITE_INTERVAL_MS 可调，0 = 关闭）。超频上报的处置 = 丢弃这次历史写入
+    // （下面的最新状态缓存 / 实时广播照旧，探针照旧拿到 2xx），避免持有密钥的异常探针
+    // 高频上报把 SQLite 写放大；正常探针最密 1s 一报，不受影响。
+    const historyWriteAt = Date.now();
+    if (tryReserveReportHistoryWrite(id, historyWriteAt, resolveReportMinWriteIntervalMs(env))) {
+      try {
+        await saveMetricsHistory(
+          env.DB,
+          id,
+          historyPartitionId,
+          historyMetrics,
+          regionCode,
+          latestSample.ts,
+          agentVersion
+        );
+      } catch (e) {
+        releaseReportHistoryWrite(id, historyWriteAt);
+        throw e;
+      }
+    }
 
     const broadcastSamples = toBroadcastSamples(id, samples, regionCode, agentVersion, latestMetrics);
     cacheLatestReportUpdate(id, broadcastSamples, Date.now());
@@ -731,6 +749,16 @@ export async function handleWebSocketUpgrade(request, env) {
   return response;
 }
 
+// /update 的 WebSocket 升级入口（探针 WSS 上报）。
+//
+// 鉴权边界（评估结论，勿照抄 /api/ws）：探针握手天然无凭证——API_SECRET 在首条上报帧里
+// 才校验（update.js / MetricsBroadcaster._resolveAgentContext），所以这里不能加面板登录态
+// 校验，更要紧的是**不能加 is_public 检查**：is_public 描述的是「访客能否看面板」，
+// 私有面板（is_public=false）的探针同样必须能上报，照抄 /api/ws 的
+// `is_public !== 'true' && !checkWebSocketAuth(...)` 会把所有私有面板的探针全部拒掉。
+// 未认证连接不靠鉴权拦，而是靠资源约束兜底：全局连接上限（server/index.js
+// WS_MAX_CONNECTIONS）+ DO 侧未认证连接寿命（AGENT_WS_AUTH_TIMEOUT_MS，见 utils/reportGuard.js）。
+// 上报频率另见 handleUpdate 的落库频率闸（REPORT_MIN_WRITE_INTERVAL_MS）。
 export async function handleUpdateWebSocketUpgrade(request, env) {
   const settings = await loadSiteSettings(env.DB);
   if (!isWssReportConfigured(settings)) {

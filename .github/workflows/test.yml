@@ -1,0 +1,48 @@
+# 自动运行测试（npm test + npm run test:all）
+#
+# 触发：push 到 main + 任意 pull_request。
+#   —— 每次推送到 main（含上传 GitHub 后的每次提交）都会跑一遍测试，作为发布前闸门。
+#
+# 设计说明（重要）：
+#   • 本 workflow 有意【不设 paths 白名单】。docker-publish 的白名单是为「多架构镜像
+#     构建昂贵（QEMU 模拟 arm64，耗时数分钟）」而设；测试只跑 1~2 分钟，代价可忽略。
+#     而白名单一旦漏项（新增目录/新测试文件等），改动就会悄悄绕过 CI——这正是本次
+#     审计发现的一类问题，故这里选择「宁可多跑、不可漏跑」。
+#   • 纯文档推送也会触发一次测试：无副作用，且可当金丝雀（顺带验证 main 依赖可正常安装）。
+#   • Node 主版本与 Dockerfile（node:24-bookworm-slim）保持一致，避免 CI 与线上运行环境漂移。
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js（对齐 Dockerfile 的 Node 24）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Unit tests (npm test)
+        run: npm test
+
+      - name: Full suite (npm run test:all)
+        run: npm run test:all

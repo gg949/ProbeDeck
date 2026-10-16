@@ -122,13 +122,30 @@ export function extraNamesFromJson(raw) {
   return values;
 }
 
-export function serializeExtraHosts(values = {}) {
+// 扩展槽（node_5 … node_20）存储写入。
+// 语义（v2.13.2-beta1 批次第 4 项）：'' = 未配置；'0' = 显式禁用。
+// 把某条已配置的扩展槽清空/删除时写入 '0' 而不是从 JSON 里去掉——主题端按
+// 「host === '0'」判定禁用，可以在探针下次上报覆盖残留延迟数值之前就停止绘制这条
+// 已删除的线路（否则按「有值就收」会把删掉的线路继续画出来）。
+// 需要旧值才能区分「真的删掉了一条线路」与「从未配置」：只有此前存过非空值的槽位
+// 才写 '0'，从未配置的槽位保持 ''（不写进 JSON）。
+// ⚠️ 只适用于扩展槽：前 8 槽是独立列、'' 有「继承站点默认」含义，绝不能写 '0'。
+export function serializeExtraHosts(values = {}, previousValues = null) {
+  const previous = previousValues && typeof previousValues === 'object' && !Array.isArray(previousValues)
+    ? previousValues
+    : {};
   const obj = {};
   let any = false;
   for (const slot of EXTRA_PROBE_SLOTS) {
     const value = values[slot.hostField];
     if (value !== undefined && value !== null && String(value) !== '') {
       obj[slot.hostField] = String(value);
+      any = true;
+      continue;
+    }
+    const previousValue = previous[slot.hostField];
+    if (previousValue !== undefined && previousValue !== null && String(previousValue) !== '') {
+      obj[slot.hostField] = '0';
       any = true;
     }
   }

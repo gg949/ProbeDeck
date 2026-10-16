@@ -46,6 +46,7 @@ import {
   LATEST_REPORT_CACHE_MAX_SERVERS,
   LATEST_REPORT_CACHE_TTL_MS
 } from '../utils/config.js';
+import { resolveAgentWsAuthTimeoutMs } from '../utils/reportGuard.js';
 
 const MAX_SUBSCRIBE_IDS = 500;
 const MAX_SERVER_ID_LENGTH = 64;
@@ -456,7 +457,7 @@ export class MetricsBroadcaster {
     } catch (_) {}
   }
 
-  _acceptStandardAgentWebSocket(server, initialAttachment) {
+  _acceptStandardAgentWebSocket(server, initialAttachment, options = {}) {
     // Agent 上报连接使用标准 WebSocket API，避免每条业务消息都成为 hibernation wakeup。
     // 代价是只要 Agent 长连接存在，本 DO 就不能休眠，会持续产生 duration。
     server.accept();
@@ -482,6 +483,26 @@ export class MetricsBroadcaster {
       this.standardAgentWebSocketCount = Math.max(0, this.standardAgentWebSocketCount - 1);
       this.standardAgentWebSockets.delete(ws);
     };
+
+    // 未认证连接的兜底寿命：/update 握手阶段没有凭证（API_SECRET 在首条上报帧里才校验），
+    // 匿名连接否则可以一直占着连接额度与内存。超时仍没有完成过任何一次有效鉴权
+    // （attachment.authenticated 未被置真）就主动关闭。探针连上后 1–5 秒内必上报，
+    // 正常探针不受影响；默认 60s，env AGENT_WS_AUTH_TIMEOUT_MS 可调，0 = 关闭。
+    const authTimeoutMs = Number(options?.authTimeoutMs) || 0;
+    if (authTimeoutMs > 0 && typeof setTimeout === 'function') {
+      const authTimer = setTimeout(() => {
+        if (cleaned || session.attachment?.authenticated) return;
+        this._closeWsWithError(
+          ws,
+          'Authentication timeout',
+          408,
+          {},
+          WS_POLICY_VIOLATION,
+          'authentication timeout'
+        );
+      }, authTimeoutMs);
+      authTimer?.unref?.();
+    }
 
     server.addEventListener('message', event => {
       this._handleAgentReportMessage(ws, event.data, ws.deserializeAttachment())
@@ -1374,6 +1395,9 @@ export class MetricsBroadcaster {
         url.searchParams.get('agent_config_md5'),
         request.headers.get(AGENT_CONFIG_MD5_HEADER)
       ))
+    }, {
+      // 未认证连接寿命（默认 60s，env AGENT_WS_AUTH_TIMEOUT_MS 可调）：见 _acceptStandardAgentWebSocket
+      authTimeoutMs: resolveAgentWsAuthTimeoutMs(this.env)
     });
 
     this._sendWsJson(agentSocket, {
