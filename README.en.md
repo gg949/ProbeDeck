@@ -355,9 +355,13 @@ All optional — the app starts with zero configuration.
 | `/opt/probedeck/data/api_secret.txt` | Auto-generated secret |
 | `/opt/probedeck/data/geoip/` | Auto-downloaded GeoIP database (if used) |
 | `/opt/probedeck/data/do-storage.json` | Small runtime state of the real-time broadcast module |
+| `/opt/probedeck/data/backups/` | Where the panel's one-click backups land (latest 3 kept automatically) |
 
 All data lives in this single directory: **backup = copy it, migrate = move it to another machine.**
 No import/export inside the panel is needed — with Docker, operating on the files directly is the simplest way.
+
+The panel can also back up on demand: **Database Management → Database Maintenance → "Back up now"**.
+Backup files are written to the `backups/` subfolder of the data directory (Docker default `/opt/probedeck/data/backups`), and only the latest 3 are kept.
 
 ### Backup
 

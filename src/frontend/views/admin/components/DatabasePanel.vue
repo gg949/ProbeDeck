@@ -138,6 +138,7 @@
             <span class="text-muted"> · {{ formatBytes(item.bytes) }} · {{ formatTime(item.created_at) }}</span>
           </li>
         </ul>
+        <p class="text-muted mt-1 mb-0 text-sm">{{ trans.dbStatsBackupsLocation }}</p>
       </div>
 
       <div class="db-maintenance-actions">

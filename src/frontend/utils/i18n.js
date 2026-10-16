@@ -536,7 +536,7 @@ const translations = reactive({
     cfMigrateUnavailable: 'This feature is not available in the current version',
 
     dbMaintenanceTitle: 'Database Maintenance',
-    dbMaintenanceDesc: 'Inspect database size, compact storage (VACUUM), create a local backup, or run an integrity check. Available in the Docker/VPS edition only.',
+    dbMaintenanceDesc: 'Inspect database size, compact storage (VACUUM), create a local backup, or run an integrity check.',
     dbMaintenanceRunning: 'Working… please wait',
     dbMaintenanceFailed: 'Operation failed',
     dbMaintenanceUnsupported: 'This feature is not available in the current edition',
@@ -548,6 +548,7 @@ const translations = reactive({
     dbStatsFreePages: 'Free pages',
     dbStatsBackups: 'Local backups (latest {n} kept)',
     dbStatsNoBackups: 'No backups yet',
+    dbStatsBackupsLocation: 'Backups are stored in the backups/ subfolder of the data directory.',
     dbStatsRefresh: 'Refresh',
     dbStatsVacuum: 'VACUUM',
     dbStatsBackup: 'Back up now',
@@ -1121,7 +1122,7 @@ const translations = reactive({
     cfMigrateUnavailable: '当前版本不支持此功能',
 
     dbMaintenanceTitle: '数据库维护',
-    dbMaintenanceDesc: '查看数据库体积、整理碎片（VACUUM）、创建本机备份或执行完整性检查。仅 Docker/VPS 版可用。',
+    dbMaintenanceDesc: '查看数据库体积、整理碎片（VACUUM）、创建本机备份或执行完整性检查。',
     dbMaintenanceRunning: '正在执行，请稍候…',
     dbMaintenanceFailed: '操作失败',
     dbMaintenanceUnsupported: '当前版本不支持此功能',
@@ -1133,6 +1134,7 @@ const translations = reactive({
     dbStatsFreePages: '空闲页',
     dbStatsBackups: '本机备份（保留最近 {n} 份）',
     dbStatsNoBackups: '暂无备份',
+    dbStatsBackupsLocation: '备份保存在数据目录的 backups/ 子目录。',
     dbStatsRefresh: '刷新',
     dbStatsVacuum: 'VACUUM 整理',
     dbStatsBackup: '立即备份',

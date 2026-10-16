@@ -353,9 +353,13 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/gg949/Nginx-X/main/insta
 | `/opt/probedeck/data/api_secret.txt` | 自动生成的密钥 |
 | `/opt/probedeck/data/geoip/` | 自动下载的 GeoIP 数据库（如使用） |
 | `/opt/probedeck/data/do-storage.json` | 实时广播模块的少量运行状态 |
+| `/opt/probedeck/data/backups/` | 后台「数据库维护」一键备份的落盘目录（自动保留最近 3 份） |
 
 数据全部在这一个目录里，**备份 = 复制这个目录，迁移 = 把它放到另一台机器**。
 不需要在面板里做任何导入导出——Docker 部署下直接操作文件就是最简单的方式。
+
+另外，后台「数据库管理 → 数据库维护」里的「立即备份」可以一键备份（不用离开浏览器）：
+备份文件写入数据目录下的 `backups/` 子目录（Docker 默认 `/opt/probedeck/data/backups`），自动只保留最近 3 份。
 
 ### 备份
 
